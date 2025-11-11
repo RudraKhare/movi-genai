@@ -1,0 +1,38 @@
+feat(backend): implement transactional service layer and agent tools
+
+Implemented Features:
+- Async database connection pool with asyncpg
+- Transactional business logic (assign/remove/cancel operations)
+- Consequence calculation for LangGraph decision-making
+- Atomic audit logging within transactions
+- Debug REST endpoints for testing
+
+Core Modules (backend/app/core/):
+- supabase_client.py: Connection pool management
+- db.py: Low-level query helpers with transaction support
+- consequences.py: Trip consequence calculator for agent
+- audit.py: Transactional audit logging
+- service.py: Business logic (assign/remove/cancel)
+- tools.py: LangGraph tool exports
+
+API Routes:
+- debug.py: Debug endpoints
+
+Tests:
+- test_core_service.py: 10 comprehensive tests, all passing
+
+Technical Highlights:
+- asyncpg date object handling for PostgreSQL DATE columns
+- Atomic transactions with automatic rollback on errors
+- Schema corrections (user_id not employee_id, created_at not logged_at)
+- Connection pool with SSL support and graceful shutdown
+- Lifespan events for pool initialization/cleanup
+
+Verification:
+- All 10 tests passing
+- Backend server starts successfully with pool initialization
+- Debug endpoints return correct data for trips 1 and 2
+- Transaction atomicity verified in tests
+- Audit logs created correctly within transactions
+
+Ready for Day 4: LangGraph agent integration

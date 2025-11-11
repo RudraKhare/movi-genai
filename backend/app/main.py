@@ -7,8 +7,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-# Import routers
+# Import REST API routers
+from app.api import routes, actions, context, audit, health
+
+# Import debug router (from Day 3)
 from app.routers import debug
+
+# Import middleware
+from app.middleware import add_middlewares
 
 # Import DB initialization
 from app.core.supabase_client import init_db_pool, close_pool
@@ -21,7 +27,7 @@ async def lifespan(app: FastAPI):
     Initializes DB pool on startup and closes it on shutdown.
     """
     # Startup: Initialize database connection pool
-    print("🚀 Starting Movi backend...")
+    print("🚀 Starting Movi backend API...")
     try:
         await init_db_pool(min_size=2, max_size=10)
         print("✅ Database pool initialized")
@@ -38,9 +44,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Movi - Multimodal Transport Agent API",
-    description="Backend API for MoveInSync Shuttle transport management",
-    version="0.2.0 (core-tools)",
+    title="MOVI Backend API",
+    description="Backend API for MOVI – the multimodal transport operations agent",
+    version="1.0.0 (REST API)",
     lifespan=lifespan
 )
 
@@ -53,20 +59,51 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
+# Add custom middlewares (auth, error handling)
+add_middlewares(app)
+
+# Include API routers
+app.include_router(routes.router, prefix="/api/routes", tags=["Routes & Entities"])
+app.include_router(actions.router, prefix="/api/actions", tags=["Trip Actions"])
+app.include_router(context.router, prefix="/api/context", tags=["UI Context"])
+app.include_router(audit.router, prefix="/api/audit", tags=["Audit Logs"])
+app.include_router(health.router, prefix="/api/health", tags=["Health & Status"])
+
+# Include debug router (from Day 3)
 app.include_router(debug.router)
+
+
+@app.get("/")
+async def root():
+    """
+    Root endpoint.
+    Provides basic API information and available endpoints.
+    """
+    return {
+        "message": "MOVI Backend API is running successfully",
+        "version": "1.0.0",
+        "api_docs": "/docs",
+        "endpoints": {
+            "routes": "/api/routes",
+            "actions": "/api/actions",
+            "context": "/api/context",
+            "audit": "/api/audit",
+            "health": "/api/health",
+            "debug": "/api/debug"
+        }
+    }
 
 
 @app.get("/health")
 async def health():
     """
-    Health check endpoint.
-    Returns service status and basic metadata.
+    Health check endpoint (legacy from Day 1).
+    For detailed health info, use /api/health/status
     """
     return {
         "status": "ok",
         "service": "movi-backend",
-        "layer": "core-tools",
+        "layer": "rest-api",
         "timestamp": datetime.utcnow().isoformat(),
         "version": "0.1.0",
     }
@@ -96,3 +133,4 @@ async def root():
 
 # TODO: Add LangGraph agent endpoints (Day 3+)
 # app.include_router(agent.router, prefix="/api/agent", tags=["agent"])
+
