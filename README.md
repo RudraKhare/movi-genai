@@ -125,11 +125,14 @@ npm test
 - [x] Environment configuration
 - [x] Docker setup for local development
 
-### Day 2: Database & Models (Next)
-- [ ] Database schema design (Stops → Paths → Routes → Trips)
-- [ ] Alembic migrations setup
-- [ ] SQLAlchemy models
-- [ ] Seed script with dummy data
+### Day 2: Database & Models ✅
+- [x] Database schema design (Stops → Paths → Routes → Trips)
+- [x] SQL migration with 10 normalized tables
+- [x] PostgreSQL triggers for automatic calculations
+- [x] Seed script with realistic Bangalore data
+- [x] Supabase setup guide
+- [x] Reset scripts for Windows/Linux
+- [x] Database verification script
 
 ### Day 3: LangGraph Agent
 - [ ] Agent state design
