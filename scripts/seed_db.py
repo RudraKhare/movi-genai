@@ -14,12 +14,16 @@ Requirements:
 """
 
 import os
+import sys
 import random
 import datetime
+from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load environment variables from multiple locations
+load_dotenv('.env')
 load_dotenv('.env.local')
+load_dotenv(Path(__file__).parent.parent / 'backend' / '.env')
 
 # Check which database connection to use
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -29,24 +33,51 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 print("=" * 60)
 print("🌱 MOVI Database Seed Script")
 print("=" * 60)
+print()
 
-# Determine connection method
-if SUPABASE_URL and SUPABASE_SERVICE_KEY:
-    print("✅ Using Supabase connection")
-    from supabase import create_client, Client
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-    USE_SUPABASE = True
-elif DATABASE_URL:
-    print("✅ Using direct PostgreSQL connection")
-    import asyncpg
-    import asyncio
-    USE_SUPABASE = False
+# Determine connection method - Prefer asyncpg for reliability
+if DATABASE_URL:
+    print("✅ Using direct PostgreSQL connection (asyncpg)")
+    print(f"📡 Database: {DATABASE_URL.split('@')[1].split('/')[0] if '@' in DATABASE_URL else 'local'}")
+    try:
+        import asyncpg
+        import asyncio
+        USE_SUPABASE = False
+        print("✅ asyncpg ready for seeding")
+    except ImportError:
+        print("❌ asyncpg not installed. Run: pip install asyncpg")
+        sys.exit(1)
+elif SUPABASE_URL and SUPABASE_SERVICE_KEY:
+    print("✅ Using Supabase REST API connection")
+    print(f"📡 URL: {SUPABASE_URL}")
+    try:
+        from supabase import create_client, Client
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        USE_SUPABASE = True
+        print("✅ Supabase client initialized")
+    except Exception as e:
+        print(f"❌ Failed to initialize Supabase client: {e}")
+        print("💡 Falling back to asyncpg if DATABASE_URL is available")
+        if DATABASE_URL:
+            import asyncpg
+            import asyncio
+            USE_SUPABASE = False
+        else:
+            sys.exit(1)
 else:
     print("❌ Error: No database credentials found!")
-    print("Please set either:")
-    print("  - SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY")
-    print("  - DATABASE_URL")
-    exit(1)
+    print()
+    print("Please set environment variables in .env file:")
+    print("  Option 1 (Direct PostgreSQL - Recommended):")
+    print("    DATABASE_URL=postgresql://user:pass@host:5432/dbname")
+    print()
+    print("  Option 2 (Supabase REST API):")
+    print("    SUPABASE_URL=https://xxx.supabase.co")
+    print("    SUPABASE_SERVICE_ROLE_KEY=eyJxxx...")
+    print()
+    sys.exit(1)
+
+print()
 
 # =============================
 # DATA DEFINITIONS
@@ -326,9 +357,13 @@ async def seed_postgres():
         print("🚏 Inserting routes...")
         route_ids = {}
         for route in ROUTES_DATA:
+            # Convert time string to datetime.time object
+            time_parts = route["shift_time"].split(":")
+            shift_time_obj = datetime.time(int(time_parts[0]), int(time_parts[1]), int(time_parts[2]))
+            
             route_id = await conn.fetchval(
                 "INSERT INTO routes (path_id, route_display_name, shift_time, direction, start_point, end_point, status) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING route_id",
-                path_ids[route["path_name"]], route["display_name"], route["shift_time"], 
+                path_ids[route["path_name"]], route["display_name"], shift_time_obj, 
                 route["direction"], route["start"], route["end"], "active"
             )
             route_ids[route["display_name"]] = route_id
