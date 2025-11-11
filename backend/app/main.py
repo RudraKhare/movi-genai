@@ -5,14 +5,43 @@ Main entry point for the transport management API
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
+from contextlib import asynccontextmanager
 
-# TODO: Import routers once created (Day 2+)
-# from app.routers import stops, paths, routes, trips, vehicles, drivers
+# Import routers
+from app.routers import debug
+
+# Import DB initialization
+from app.core.supabase_client import init_db_pool, close_pool
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for startup and shutdown events.
+    Initializes DB pool on startup and closes it on shutdown.
+    """
+    # Startup: Initialize database connection pool
+    print("🚀 Starting Movi backend...")
+    try:
+        await init_db_pool(min_size=2, max_size=10)
+        print("✅ Database pool initialized")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not initialize database pool: {e}")
+        print("   Some endpoints may not work until DATABASE_URL is configured.")
+    
+    yield
+    
+    # Shutdown: Close database connection pool
+    print("🛑 Shutting down Movi backend...")
+    await close_pool()
+    print("✅ Database pool closed")
+
 
 app = FastAPI(
     title="Movi - Multimodal Transport Agent API",
     description="Backend API for MoveInSync Shuttle transport management",
-    version="0.1.0 (bootstrap)",
+    version="0.2.0 (core-tools)",
+    lifespan=lifespan
 )
 
 # CORS middleware for frontend integration
@@ -24,6 +53,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include routers
+app.include_router(debug.router)
+
 
 @app.get("/health")
 async def health():
@@ -34,7 +66,7 @@ async def health():
     return {
         "status": "ok",
         "service": "movi-backend",
-        "layer": "bootstrap",
+        "layer": "core-tools",
         "timestamp": datetime.utcnow().isoformat(),
         "version": "0.1.0",
     }

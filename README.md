@@ -141,11 +141,24 @@ npm test
 
 **Quick Start**: See `docs/DAY2_QUICK_START.md` for setup instructions
 
-### Day 3: LangGraph Agent
+### Day 3: Backend Core + Agent Tool Layer ✅
+- [x] Async database connection pool (asyncpg)
+- [x] Transactional business logic (assign/remove/cancel operations)
+- [x] Consequence calculation for LangGraph decision-making
+- [x] Atomic audit logging within transactions
+- [x] Debug REST endpoints (`/api/debug/trip_status`, `/audit`, `/health`)
+- [x] Comprehensive test suite (10/10 tests passing)
+- [x] LangGraph tool exports (`app.core.tools.TOOLS`)
+
+**Backend Status**: ✅ Server running | Connection pool: 2-10 | All core tools operational
+
+**Quick Start**: See `docs/DAY3_IMPLEMENTATION.md` for implementation details
+
+### Day 4: LangGraph Agent
 - [ ] Agent state design
 - [ ] Core nodes (parse_intent, check_consequences, execute_action)
 - [ ] Conditional edges for "tribal knowledge" flow
-- [ ] Tool implementations (>10 actions)
+- [ ] Integration with core tools
 
 ### Day 4: Multimodal Features
 - [ ] Image processing (Vision API)
