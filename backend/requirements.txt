@@ -17,8 +17,8 @@ pyjwt==2.8.0
 python-multipart==0.0.6
 passlib[bcrypt]==1.7.4
 
-# HTTP Client
-httpx==0.25.1
+# HTTP Client (version compatible with Supabase 2.3.0)
+httpx>=0.24.0,<0.25.0
 
 # Image Processing
 pillow==10.1.0
