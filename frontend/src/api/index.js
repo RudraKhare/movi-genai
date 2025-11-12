@@ -25,4 +25,9 @@ export const getRecentAuditLogs = (limit = 20) =>
 // Health check
 export const getHealthStatus = () => api.get("/health/status");
 
+// Route Management endpoints (Day 6)
+export const createStop = (data) => api.post("/routes/stops/create", data);
+export const createPath = (data) => api.post("/routes/paths/create", data);
+export const createRoute = (data) => api.post("/routes/create", data);
+
 export default api;

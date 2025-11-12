@@ -19,19 +19,20 @@ export default function Header({ onRefresh, summary }) {
           {/* Navigation */}
           <nav className="flex items-center gap-6">
             <Link
-              to="/"
+              to="/dashboard"
               className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                location.pathname === "/"
+                location.pathname === "/dashboard"
                   ? "bg-blue-800 text-white"
                   : "hover:bg-blue-700 text-blue-100"
               }`}
             >
               🚌 Dashboard
             </Link>
+            {/* Bug Fix: Changed route from /manage to /manage-route to match route definition in main.jsx */}
             <Link
-              to="/manage"
+              to="/manage-route"
               className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                location.pathname === "/manage"
+                location.pathname === "/manage-route"
                   ? "bg-blue-800 text-white"
                   : "hover:bg-blue-700 text-blue-100"
               }`}

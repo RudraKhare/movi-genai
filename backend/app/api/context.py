@@ -30,13 +30,13 @@ async def dashboard_context():
                     dt.trip_id,
                     dt.route_id,
                     dt.trip_date,
-                    r.route_display_name AS route_name,
+                    r.route_name,
                     r.shift_time,
                     r.direction,
                     dt.live_status,
                     d.vehicle_id,
                     d.driver_id,
-                    v.license_plate AS vehicle_number,
+                    v.registration_number AS vehicle_number,
                     dr.name AS driver_name,
                     COUNT(b.booking_id) FILTER (WHERE b.status='CONFIRMED') AS booked_count,
                     COALESCE(SUM(b.seats) FILTER (WHERE b.status='CONFIRMED'), 0) AS seats_booked
@@ -47,8 +47,8 @@ async def dashboard_context():
                 LEFT JOIN drivers dr ON d.driver_id = dr.driver_id
                 LEFT JOIN bookings b ON b.trip_id = dt.trip_id
                 GROUP BY 
-                    dt.trip_id, dt.route_id, dt.trip_date, r.route_display_name, r.shift_time, r.direction,
-                    dt.live_status, d.vehicle_id, d.driver_id, v.license_plate, dr.name
+                    dt.trip_id, dt.route_id, dt.trip_date, r.route_name, r.shift_time, r.direction,
+                    dt.live_status, d.vehicle_id, d.driver_id, v.registration_number, dr.name
                 ORDER BY dt.trip_date DESC, r.shift_time
                 LIMIT 100
             """)
@@ -109,7 +109,7 @@ async def manage_context():
             stops = await conn.fetch("SELECT * FROM stops ORDER BY stop_id")
             
             routes = await conn.fetch("""
-                SELECT r.*, p.name AS path_name
+                SELECT r.*, p.path_name
                 FROM routes r
                 LEFT JOIN paths p ON r.path_id = p.path_id
                 ORDER BY r.route_id
@@ -129,11 +129,12 @@ async def manage_context():
             drivers = await conn.fetch("SELECT * FROM drivers ORDER BY driver_id")
         
         # Group stops by path
-        paths_dict = {p['path_id']: {**dict(p), 'stops': []} for p in paths}
+        paths_dict = {p['path_id']: {**dict(p), 'stops': [], 'stop_count': 0} for p in paths}
         for ps in path_stops:
             path_id = ps['path_id']
             if path_id in paths_dict:
                 paths_dict[path_id]['stops'].append(dict(ps))
+                paths_dict[path_id]['stop_count'] = len(paths_dict[path_id]['stops'])
         
         # Convert asyncpg.Record to dict and handle date/time serialization
         def serialize_row(row):

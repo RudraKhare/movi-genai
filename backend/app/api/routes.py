@@ -4,7 +4,9 @@ CRUD endpoints for routes, stops, paths, vehicles, and drivers.
 """
 from fastapi import APIRouter, HTTPException, status
 from app.core.supabase_client import get_conn
+from app.core.enum_normalizer import normalize_enum_value, normalize_data_enums
 from typing import List
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -173,4 +175,171 @@ async def list_drivers():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch drivers: {str(e)}"
+        )
+
+
+# POST endpoints for CRUD operations (Day 6)
+
+@router.post("/stops/create")
+async def create_stop(data: dict):
+    """
+    Create a new stop.
+    Expected payload: { "name": "Stop Name" }
+    """
+    try:
+        name = data.get("name", "").strip()
+        if not name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Stop name is required"
+            )
+        
+        pool = await get_conn()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                INSERT INTO stops (name, status)
+                VALUES ($1, 'Active')
+                RETURNING *
+            """, name)
+        
+        logger.info(f"Created stop: {name} (ID: {row['stop_id']})")
+        return {"success": True, "stop": dict(row)}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating stop: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create stop: {str(e)}"
+        )
+
+
+@router.post("/paths/create")
+async def create_path(data: dict):
+    """
+    Create a new path with ordered stops.
+    Expected payload: { "path_name": "Path A", "stop_ids": [1, 2, 3] }
+    """
+    try:
+        path_name = data.get("path_name", "").strip()
+        stop_ids = data.get("stop_ids", [])
+        
+        if not path_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Path name is required"
+            )
+        
+        if not stop_ids or len(stop_ids) < 2:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Path must have at least 2 stops"
+            )
+        
+        pool = await get_conn()
+        async with pool.acquire() as conn:
+            # Create path
+            path_row = await conn.fetchrow("""
+                INSERT INTO paths (path_name)
+                VALUES ($1)
+                RETURNING *
+            """, path_name)
+            
+            path_id = path_row['path_id']
+            
+            # Insert path_stops with ordering
+            for order, stop_id in enumerate(stop_ids, start=1):
+                await conn.execute("""
+                    INSERT INTO path_stops (path_id, stop_id, stop_order)
+                    VALUES ($1, $2, $3)
+                """, path_id, stop_id, order)
+        
+        logger.info(f"Created path: {path_name} (ID: {path_id}) with {len(stop_ids)} stops")
+        return {"success": True, "path": dict(path_row), "stop_count": len(stop_ids)}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating path: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create path: {str(e)}"
+        )
+
+
+@router.post("/create")
+async def create_route(data: dict):
+    """
+    Create a new route linked to a path.
+    Expected payload: { "route_name": "R101", "shift_time": "08:00", "path_id": 1, "direction": "UP" }
+    """
+    try:
+        route_name = data.get("route_name", "").strip()
+        shift_time_str = data.get("shift_time", "").strip()
+        path_id = data.get("path_id")
+        direction = data.get("direction", "UP")
+        
+        # Normalize direction to match database constraint ('up' or 'down')
+        direction = normalize_enum_value("routes", "direction", direction)
+        
+        if not route_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Route name is required"
+            )
+        
+        if not shift_time_str:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Shift time is required"
+            )
+        
+        if not path_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Path ID is required"
+            )
+        
+        # Convert shift_time string to datetime.time object
+        shift_time_obj = None
+        try:
+            shift_time_obj = datetime.strptime(shift_time_str, "%H:%M").time()
+        except ValueError:
+            logger.warning(f"Invalid time format: {shift_time_str}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid time format: {shift_time_str}. Expected HH:MM format."
+            )
+        
+        pool = await get_conn()
+        async with pool.acquire() as conn:
+            # Verify path exists
+            path_exists = await conn.fetchval("""
+                SELECT EXISTS(SELECT 1 FROM paths WHERE path_id = $1)
+            """, path_id)
+            
+            if not path_exists:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Path {path_id} not found"
+                )
+            
+            # Create route
+            row = await conn.fetchrow("""
+                INSERT INTO routes (route_name, shift_time, path_id, direction)
+                VALUES ($1, $2, $3, $4)
+                RETURNING *
+            """, route_name, shift_time_obj, path_id, direction)
+        
+        logger.info(f"Created route: {route_name} (ID: {row['route_id']}) for path {path_id}")
+        return {"success": True, "route": dict(row)}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating route: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create route: {str(e)}"
         )
