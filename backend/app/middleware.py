@@ -24,7 +24,12 @@ async def verify_api_key(request: Request, call_next):
     - /docs, /redoc, /openapi.json (Swagger)
     - / (root)
     - Any path not starting with /api
+    - OPTIONS requests (CORS preflight)
     """
+    # Exempt OPTIONS requests (CORS preflight)
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    
     # Exempt paths
     exempt_paths = ["/", "/docs", "/redoc", "/openapi.json"]
     
