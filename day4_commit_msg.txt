@@ -1,0 +1,59 @@
+feat(api): implement REST endpoints and context aggregation
+
+Implemented Features:
+- Pydantic models for request/response validation (15 models)
+- API key authentication middleware (x-api-key header)
+- Trip action endpoints (assign/remove/cancel vehicle)
+- CRUD endpoints for routes, stops, paths, vehicles, drivers
+- Context aggregation endpoints (dashboard, manage UI)
+- Audit log query endpoints (entity logs, recent logs)
+- Health check and status endpoints
+- Global error handling with JSON responses
+- OpenAPI documentation auto-generated
+
+REST API Modules:
+- models.py: 15 Pydantic models (148 lines)
+- middleware.py: Auth + error handling (89 lines)
+- api/actions.py: 3 POST endpoints (146 lines)
+- api/routes.py: 6 GET endpoints (154 lines)
+- api/context.py: 2 aggregation endpoints (156 lines)
+- api/audit.py: 3 query endpoints (145 lines)
+- api/health.py: 3 health checks (117 lines)
+
+Total: 18 endpoints across 6 routers
+
+Technical Highlights:
+- All endpoints async using asyncpg connection pool
+- No transactions at API layer (uses Day 3 service functions)
+- Custom datetime serialization for JSON responses
+- ServiceError → HTTPException(400) conversion
+- Global exception handlers with consistent JSON format
+- Exempt paths for docs (/docs, /redoc, /openapi.json)
+- Request duration logging with middleware
+
+Testing:
+- Manual testing: 11/11 tests passing (PowerShell script)
+- Automated tests: pytest suite created (test_api_endpoints.py)
+- All CRUD endpoints operational
+- Authentication enforcement verified
+- Complex aggregation queries optimized for frontend
+
+Sample Responses:
+- Dashboard: 8 trips, 7 deployed, 33 bookings, 62 seats
+- Database health: PostgreSQL 17.6, 121 rows, 9 tables
+- Manage context: All entities loaded (stops, routes, paths, vehicles, drivers)
+
+Verification:
+- Server starts successfully (uvicorn on port 8000)
+- All 18 endpoints accessible with API key
+- OpenAPI docs at /docs
+- Dashboard context fixed (r.route_display_name, v.license_plate)
+- Error handling returns consistent JSON format
+- Health checks show pool size: 2, max: 10
+
+Documentation:
+- DAY4_REST_API.md: Complete API reference (14KB)
+- test_api.ps1: PowerShell testing script
+- README.md: Updated with Day 4 completion status
+
+Ready for Day 5: Frontend integration with React dashboard and LangGraph agent

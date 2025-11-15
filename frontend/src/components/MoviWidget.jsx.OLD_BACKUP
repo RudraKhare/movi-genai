@@ -1,0 +1,365 @@
+import { useState } from "react";
+import axios from "axios";
+
+const API_BASE = "http://localhost:8000/api";
+const API_KEY = "dev-key-change-in-production";
+
+export default function MoviWidget({ context }) {
+  const [open, setOpen] = useState(false);
+  const [message, setMessage] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const handleSend = async () => {
+    if (!message.trim()) return;
+
+    const userMessage = message.trim();
+    console.log("Sending message:", userMessage, "with context:", context);
+    
+    // Add user message to chat
+    setMessages(prev => [...prev, {
+      role: "user",
+      content: userMessage,
+      timestamp: new Date()
+    }]);
+    
+    setMessage("");
+    setLoading(true);
+
+    try {
+      // Call agent API
+      const response = await axios.post(
+        `${API_BASE}/agent/message`,
+        {
+          text: userMessage,
+          user_id: 1,
+          context: context
+        },
+        {
+          headers: {
+            "x-api-key": API_KEY,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+
+      console.log("Agent response:", response.data);
+
+      // Add agent response to chat
+      setMessages(prev => [...prev, {
+        role: "agent",
+        content: response.data.agent_output,
+        timestamp: new Date()
+      }]);
+
+    } catch (error) {
+      console.error("Agent API error:", error);
+      
+      // Add error message to chat
+      setMessages(prev => [...prev, {
+        role: "agent",
+        content: {
+          message: `Error: ${error.response?.data?.detail || error.message}`,
+          success: false
+        },
+        timestamp: new Date()
+      }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle confirmation of pending action
+  const handleConfirm = async (sessionId) => {
+    console.log("Confirming action for session:", sessionId);
+    setLoading(true);
+
+    try {
+      const response = await axios.post(
+        `${API_BASE}/agent/confirm`,
+        {
+          session_id: sessionId,
+          confirmed: true,
+          user_id: 1
+        },
+        {
+          headers: {
+            "x-api-key": API_KEY,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+
+      console.log("Confirmation response:", response.data);
+
+      // Add confirmation result to chat
+      setMessages(prev => [...prev, {
+        role: "agent",
+        content: response.data.agent_output,
+        timestamp: new Date()
+      }]);
+
+    } catch (error) {
+      console.error("Confirmation error:", error);
+      
+      setMessages(prev => [...prev, {
+        role: "agent",
+        content: {
+          message: `Error confirming action: ${error.response?.data?.detail || error.message}`,
+          success: false
+        },
+        timestamp: new Date()
+      }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle cancellation of pending action
+  const handleCancel = async (sessionId) => {
+    console.log("Cancelling action for session:", sessionId);
+    setLoading(true);
+
+    try {
+      const response = await axios.post(
+        `${API_BASE}/agent/confirm`,
+        {
+          session_id: sessionId,
+          confirmed: false,
+          user_id: 1
+        },
+        {
+          headers: {
+            "x-api-key": API_KEY,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+
+      console.log("Cancellation response:", response.data);
+
+      // Add cancellation message to chat
+      setMessages(prev => [...prev, {
+        role: "agent",
+        content: response.data.agent_output,
+        timestamp: new Date()
+      }]);
+
+    } catch (error) {
+      console.error("Cancellation error:", error);
+      
+      setMessages(prev => [...prev, {
+        role: "agent",
+        content: {
+          message: `Error cancelling action: ${error.response?.data?.detail || error.message}`,
+          success: false
+        },
+        timestamp: new Date()
+      }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      {/* Floating Action Button */}
+      <div
+        className="fixed bottom-6 right-6 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-full w-16 h-16 flex items-center justify-center shadow-xl cursor-pointer hover:shadow-2xl hover:scale-110 transition-all duration-300 z-40"
+        onClick={() => setOpen(!open)}
+        title="Chat with Movi"
+      >
+        <span className="text-3xl">💬</span>
+      </div>
+
+      {/* Chat Widget */}
+      {open && (
+        <div className="fixed bottom-24 right-6 bg-white w-96 h-[32rem] rounded-2xl shadow-2xl border border-gray-200 flex flex-col z-50 animate-slide-up">
+          {/* Header */}
+          <div className="p-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-t-2xl flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">🤖</span>
+              <div>
+                <h3 className="font-bold">Movi Assistant</h3>
+                <p className="text-xs text-blue-100">AI Transport Operations Agent</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setOpen(false)}
+              className="text-white hover:bg-blue-800 rounded-full w-8 h-8 flex items-center justify-center transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Messages Area */}
+          <div className="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-3">
+            {/* Welcome Message */}
+            <div className="flex gap-2">
+              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                🤖
+              </div>
+              <div className="bg-white rounded-lg rounded-tl-none p-3 shadow-sm max-w-[80%]">
+                <p className="text-sm text-gray-800">
+                  Hi! I'm <strong>Movi</strong>, your AI transport operations assistant. 
+                </p>
+                <p className="text-sm text-gray-800 mt-2">
+                  I can help you with:
+                </p>
+                <ul className="text-sm text-gray-700 mt-1 space-y-1 ml-4 list-disc">
+                  <li>Removing vehicles from trips</li>
+                  <li>Cancelling trips</li>
+                  <li>Assigning vehicles to trips</li>
+                  <li>Checking trip status and bookings</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Context Info */}
+            {context?.selectedTrip && (
+              <div className="flex gap-2">
+                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                  📋
+                </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg rounded-tl-none p-3 max-w-[80%]">
+                  <p className="text-xs text-blue-800 font-semibold mb-1">Current Context:</p>
+                  <p className="text-xs text-blue-700">
+                    <strong>Trip:</strong> {context.selectedTrip.route_name}<br/>
+                    <strong>Status:</strong> {context.selectedTrip.live_status}<br/>
+                    <strong>Bookings:</strong> {context.selectedTrip.booked_count}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Conversation Messages */}
+            {messages.map((msg, idx) => (
+              <div key={idx} className="flex gap-2">
+                {msg.role === "user" ? (
+                  <>
+                    <div className="flex-1" />
+                    <div className="bg-blue-600 text-white rounded-lg rounded-tr-none p-3 shadow-sm max-w-[80%]">
+                      <p className="text-sm">{msg.content}</p>
+                    </div>
+                    <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0 text-white font-bold">
+                      U
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                      🤖
+                    </div>
+                    <div className="bg-white rounded-lg rounded-tl-none p-3 shadow-sm max-w-[80%]">
+                      {msg.content.success === false ? (
+                        <p className="text-sm text-red-600">❌ {msg.content.message}</p>
+                      ) : (
+                        <>
+                          <p className="text-sm text-gray-800 whitespace-pre-line">
+                            {msg.content.message}
+                          </p>
+                          
+                          {msg.content.consequences && (
+                            <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
+                              <p className="font-semibold text-yellow-800">⚠️ Impact:</p>
+                              <ul className="mt-1 space-y-1 text-yellow-700">
+                                {msg.content.consequences.booking_count > 0 && (
+                                  <li>• {msg.content.consequences.booking_count} bookings affected</li>
+                                )}
+                                {msg.content.consequences.booking_percentage > 0 && (
+                                  <li>• {msg.content.consequences.booking_percentage}% capacity</li>
+                                )}
+                              </ul>
+                            </div>
+                          )}
+                          
+                          {msg.content.needs_confirmation && (
+                            <div className="mt-2 flex gap-2">
+                              <button 
+                                onClick={() => handleConfirm(msg.content.session_id)}
+                                disabled={loading}
+                                className="px-3 py-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-xs rounded transition-colors"
+                              >
+                                ✓ Confirm
+                              </button>
+                              <button 
+                                onClick={() => handleCancel(msg.content.session_id)}
+                                disabled={loading}
+                                className="px-3 py-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-xs rounded transition-colors"
+                              >
+                                ✗ Cancel
+                              </button>
+                            </div>
+                          )}
+                          
+                          {msg.content.success && !msg.content.needs_confirmation && (
+                            <p className="text-xs text-green-600 mt-2">✅ Action completed</p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+
+            {/* Loading Indicator */}
+            {loading && (
+              <div className="flex gap-2">
+                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                  🤖
+                </div>
+                <div className="bg-white rounded-lg rounded-tl-none p-3 shadow-sm">
+                  <div className="flex gap-1">
+                    <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Placeholder when no messages */}
+            {messages.length === 0 && !loading && (
+              <div className="text-center text-xs text-gray-400 py-4">
+                💡 Try: "Remove vehicle from Bulk - 00:01"
+              </div>
+            )}
+          </div>
+
+          {/* Input Area */}
+          <div className="p-3 border-t bg-white rounded-b-2xl">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleSend()}
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Type a message or use voice..."
+              />
+              <button
+                onClick={handleSend}
+                disabled={!message.trim()}
+                className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-4 rounded-lg font-medium transition-colors"
+              >
+                Send
+              </button>
+            </div>
+            
+            {/* Voice Input Placeholder */}
+            <div className="flex items-center justify-center gap-4 mt-2">
+              <button className="text-xs text-gray-500 hover:text-blue-600 flex items-center gap-1 transition-colors">
+                🎤 Voice
+              </button>
+              <button className="text-xs text-gray-500 hover:text-blue-600 flex items-center gap-1 transition-colors">
+                📸 Image
+              </button>
+              <span className="text-xs text-gray-400">Multimodal coming soon!</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
