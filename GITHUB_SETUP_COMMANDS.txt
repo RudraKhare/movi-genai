@@ -1,0 +1,14 @@
+# Commands to run after creating the repository on GitHub
+
+# Add the remote (replace YOUR_USERNAME with your actual GitHub username)
+git remote add origin https://github.com/YOUR_USERNAME/movi-genai.git
+
+# Ensure you're on main branch
+git branch -M main
+
+# Push all commits
+git push -u origin main
+
+# Verify the push
+git log --oneline
+git remote -v

@@ -3,17 +3,23 @@ import Header from "../components/Header";
 import StopList from "../components/StopList";
 import PathCreator from "../components/PathCreator";
 import RouteCreator from "../components/RouteCreator";
-import { getManageContext } from "../api";
+import MoviWidget from "../components/MoviWidget";
+import { getManageContext, getDashboard } from "../api";
 
 export default function ManageRoute() {
   const [data, setData] = useState({ stops: [], paths: [], routes: [] });
+  const [summary, setSummary] = useState({});
   const [loading, setLoading] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const res = await getManageContext();
-      setData(res.data);
+      const [manageRes, dashboardRes] = await Promise.all([
+        getManageContext(),
+        getDashboard()
+      ]);
+      setData(manageRes.data);
+      setSummary(dashboardRes.data.summary || {});
     } catch (err) {
       console.error("Failed to load context:", err);
     } finally {
@@ -27,7 +33,7 @@ export default function ManageRoute() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Header summary={{ total_stops: data.stops?.length || 0, total_paths: data.paths?.length || 0, total_routes: data.routes?.length || 0 }} onRefresh={loadData} loading={loading} />
+      <Header summary={summary} onRefresh={loadData} loading={loading} />
       <div className="p-6 max-w-7xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-800 mb-4">
           Manage Routes, Paths & Stops
@@ -53,6 +59,16 @@ export default function ManageRoute() {
           </div>
         )}
       </div>
+
+      {/* Floating Movi Widget */}
+      <MoviWidget 
+        context={{ 
+          currentPage: "manageRoute",
+          selectedRoute: data.routes?.[0] || null,
+          selectedRouteId: data.routes?.[0]?.route_id
+        }} 
+        onRefresh={loadData}
+      />
     </div>
   );
 }

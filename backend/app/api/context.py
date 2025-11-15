@@ -30,25 +30,34 @@ async def dashboard_context():
                     dt.trip_id,
                     dt.route_id,
                     dt.trip_date,
+                    dt.display_name,
+                    dt.booking_status_percentage,
                     r.route_name,
                     r.shift_time,
                     r.direction,
+                    r.start_point,
+                    r.end_point,
                     dt.live_status,
                     d.vehicle_id,
                     d.driver_id,
-                    v.registration_number AS vehicle_number,
+                    v.registration_number,
+                    v.capacity,
                     dr.name AS driver_name,
+                    p.path_name,
                     COUNT(b.booking_id) FILTER (WHERE b.status='CONFIRMED') AS booked_count,
                     COALESCE(SUM(b.seats) FILTER (WHERE b.status='CONFIRMED'), 0) AS seats_booked
                 FROM daily_trips dt
                 JOIN routes r ON dt.route_id = r.route_id
+                LEFT JOIN paths p ON r.path_id = p.path_id
                 LEFT JOIN deployments d ON d.trip_id = dt.trip_id
                 LEFT JOIN vehicles v ON d.vehicle_id = v.vehicle_id
                 LEFT JOIN drivers dr ON d.driver_id = dr.driver_id
                 LEFT JOIN bookings b ON b.trip_id = dt.trip_id
                 GROUP BY 
-                    dt.trip_id, dt.route_id, dt.trip_date, r.route_name, r.shift_time, r.direction,
-                    dt.live_status, d.vehicle_id, d.driver_id, v.registration_number, dr.name
+                    dt.trip_id, dt.route_id, dt.trip_date, dt.display_name, dt.booking_status_percentage,
+                    r.route_name, r.shift_time, r.direction, r.start_point, r.end_point,
+                    dt.live_status, d.vehicle_id, d.driver_id, v.registration_number, v.capacity, dr.name,
+                    p.path_name
                 ORDER BY dt.trip_date DESC, r.shift_time
                 LIMIT 100
             """)
@@ -58,6 +67,7 @@ async def dashboard_context():
             deployed_count = sum(1 for t in trips if t['vehicle_id'] is not None)
             total_bookings = sum(int(t['booked_count']) for t in trips)
             total_seats_booked = sum(int(t['seats_booked']) for t in trips)
+            ongoing_trips = sum(1 for t in trips if t['live_status'] == 'IN_PROGRESS')
         
         # Convert asyncpg.Record to dict and format data
         trips_list = []
@@ -78,7 +88,8 @@ async def dashboard_context():
                 "deployed": deployed_count,
                 "pending_deployment": total_trips - deployed_count,
                 "total_bookings": total_bookings,
-                "total_seats_booked": total_seats_booked
+                "total_seats_booked": total_seats_booked,
+                "ongoing_trips": ongoing_trips
             }
         )
     

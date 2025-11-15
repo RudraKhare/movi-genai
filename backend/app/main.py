@@ -2,13 +2,18 @@
 Movi Backend - FastAPI Application
 Main entry point for the transport management API
 """
+import os
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 from contextlib import asynccontextmanager
 
+# Load environment variables from .env file
+load_dotenv()
+
 # Import REST API routers
-from app.api import routes, actions, context, audit, health
+from app.api import routes, actions, context, audit, health, agent, agent_image
 
 # Import debug router (from Day 3)
 from app.routers import debug
@@ -69,6 +74,12 @@ app.include_router(context.router, prefix="/api/context", tags=["UI Context"])
 app.include_router(audit.router, prefix="/api/audit", tags=["Audit Logs"])
 app.include_router(health.router, prefix="/api/health", tags=["Health & Status"])
 
+# Include agent router (Day 7: LangGraph)
+app.include_router(agent.router, prefix="/api/agent", tags=["AI Agent"])
+
+# Include agent image router (Day 10: OCR)
+app.include_router(agent_image.router, prefix="/api", tags=["AI Agent - Image"])
+
 # Include debug router (from Day 3)
 app.include_router(debug.router)
 
@@ -89,6 +100,7 @@ async def root():
             "context": "/api/context",
             "audit": "/api/audit",
             "health": "/api/health",
+            "agent": "/api/agent",
             "debug": "/api/debug"
         }
     }

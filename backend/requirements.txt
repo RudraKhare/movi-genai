@@ -23,6 +23,8 @@ httpx>=0.24.0,<0.25.0
 # Image Processing
 pillow==10.1.0
 pytesseract==0.3.10
+google-cloud-vision==3.7.0
+rapidfuzz==3.6.1
 
 # Testing
 pytest==7.4.3

@@ -8,6 +8,7 @@ export default function RouteCreator({ paths, routes, onRefresh }) {
   const [direction, setDirection] = useState("UP");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
 
   const handleCreate = async () => {
     if (!routeName.trim()) {
@@ -25,18 +26,28 @@ export default function RouteCreator({ paths, routes, onRefresh }) {
 
     setLoading(true);
     setError(null);
+    setSuccess(null);
 
     try {
-      await createRoute({
+      const response = await createRoute({
         route_name: routeName.trim(),
         shift_time: shiftTime,
         path_id: parseInt(pathId),
         direction,
       });
+      
+      // Show success message with trip count
+      const tripsCreated = response.data?.trips_created?.length || 3;
+      setSuccess(`✅ Route created! ${tripsCreated} daily trips scheduled for the next 3 days.`);
+      
       setRouteName("");
       setShiftTime("");
       setPathId("");
       setDirection("UP");
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => setSuccess(null), 5000);
+      
       await onRefresh();
     } catch (err) {
       setError(err.response?.data?.error || "Failed to create route");
@@ -87,6 +98,13 @@ export default function RouteCreator({ paths, routes, onRefresh }) {
       {/* Create New Route Form */}
       <div className="flex-1 flex flex-col">
         <h3 className="text-sm font-medium text-gray-700 mb-2">Create New Route</h3>
+
+        {/* Success Message */}
+        {success && (
+          <div className="mb-2 p-2 bg-green-50 border border-green-200 rounded text-green-700 text-xs">
+            {success}
+          </div>
+        )}
 
         {/* Error Message */}
         {error && (

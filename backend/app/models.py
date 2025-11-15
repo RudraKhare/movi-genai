@@ -88,7 +88,17 @@ class TripInfo(BaseModel):
     seats_booked: Optional[int] = 0
     vehicle_id: Optional[int] = None
     driver_id: Optional[int] = None
+    capacity: Optional[int] = None  # Vehicle capacity
     trip_date: Optional[str] = None
+    shift_time: Optional[str] = None
+    direction: Optional[str] = None
+    registration_number: Optional[str] = None
+    driver_name: Optional[str] = None
+    path_name: Optional[str] = None
+    start_point: Optional[str] = None
+    end_point: Optional[str] = None
+    display_name: Optional[str] = None
+    booking_status_percentage: Optional[int] = 0
 
 
 class Booking(BaseModel):

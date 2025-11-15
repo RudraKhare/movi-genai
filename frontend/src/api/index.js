@@ -29,5 +29,18 @@ export const getHealthStatus = () => api.get("/health/status");
 export const createStop = (data) => api.post("/routes/stops/create", data);
 export const createPath = (data) => api.post("/routes/paths/create", data);
 export const createRoute = (data) => api.post("/routes/create", data);
+export const getRouteStops = (routeId) => api.get(`/routes/${routeId}/stops`);
+
+// Agent endpoints (Day 9)
+export const sendAgentMessage = (payload) => api.post("/agent/message", payload);
+export const confirmAgentAction = (payload) => api.post("/agent/confirm", payload);
+
+// Agent image endpoint (Day 10)
+export const uploadAgentImage = (formData) => 
+  api.post("/agent/image", formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  });
 
 export default api;

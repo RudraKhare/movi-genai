@@ -314,26 +314,63 @@ async def create_route(data: dict):
         
         pool = await get_conn()
         async with pool.acquire() as conn:
-            # Verify path exists
-            path_exists = await conn.fetchval("""
-                SELECT EXISTS(SELECT 1 FROM paths WHERE path_id = $1)
+            # Verify path exists and get path details with stops
+            path_data = await conn.fetchrow("""
+                SELECT p.path_id, p.path_name
+                FROM paths p
+                WHERE p.path_id = $1
             """, path_id)
             
-            if not path_exists:
+            if not path_data:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Path {path_id} not found"
                 )
             
-            # Create route
+            # Get first and last stops from the path
+            stops = await conn.fetch("""
+                SELECT s.stop_id, s.name, ps.stop_order
+                FROM path_stops ps
+                JOIN stops s ON ps.stop_id = s.stop_id
+                WHERE ps.path_id = $1
+                ORDER BY ps.stop_order
+            """, path_id)
+            
+            # Determine start_point and end_point
+            start_point = None
+            end_point = None
+            if stops and len(stops) > 0:
+                start_point = stops[0]['name']  # First stop
+                end_point = stops[-1]['name']    # Last stop
+            
+            # Create route with start_point and end_point
             row = await conn.fetchrow("""
-                INSERT INTO routes (route_name, shift_time, path_id, direction)
-                VALUES ($1, $2, $3, $4)
+                INSERT INTO routes (route_name, shift_time, path_id, direction, start_point, end_point)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING *
-            """, route_name, shift_time_obj, path_id, direction)
+            """, route_name, shift_time_obj, path_id, direction, start_point, end_point)
+            
+            route_id = row['route_id']
+            
+            # Auto-create a daily trip for this route (for today's date)
+            today = datetime.now().date()
+            display_name = f"{route_name}"
+            
+            trip_row = await conn.fetchrow("""
+                INSERT INTO daily_trips (route_id, display_name, trip_date, live_status)
+                VALUES ($1, $2, $3, 'SCHEDULED')
+                RETURNING *
+            """, route_id, display_name, today)
+            
+            logger.info(f"✅ Created route: {route_name} (ID: {route_id}) for path {path_id}")
+            logger.info(f"✅ Auto-created daily trip: {display_name} (Trip ID: {trip_row['trip_id']}) for {today}")
         
-        logger.info(f"Created route: {route_name} (ID: {row['route_id']}) for path {path_id}")
-        return {"success": True, "route": dict(row)}
+        return {
+            "success": True, 
+            "route": dict(row),
+            "trip": dict(trip_row),
+            "message": f"Route '{route_name}' created successfully with trip scheduled for {today}"
+        }
     
     except HTTPException:
         raise
@@ -342,4 +379,51 @@ async def create_route(data: dict):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create route: {str(e)}"
+        )
+
+
+@router.get("/{route_id}/stops")
+async def get_route_stops(route_id: int):
+    """
+    Get all stops for a route (via its path).
+    Returns the ordered list of stops for the route's path.
+    """
+    try:
+        pool = await get_conn()
+        async with pool.acquire() as conn:
+            # Get route's path_id
+            route = await conn.fetchrow("""
+                SELECT path_id FROM routes WHERE route_id = $1
+            """, route_id)
+            
+            if not route or not route['path_id']:
+                return {"stops": []}
+            
+            # Get stops for this path
+            stops = await conn.fetch("""
+                SELECT 
+                    s.stop_id,
+                    s.name,
+                    s.latitude,
+                    s.longitude,
+                    s.address,
+                    ps.stop_order
+                FROM path_stops ps
+                JOIN stops s ON ps.stop_id = s.stop_id
+                WHERE ps.path_id = $1
+                ORDER BY ps.stop_order
+            """, route['path_id'])
+            
+            return {
+                "route_id": route_id,
+                "path_id": route['path_id'],
+                "stops": [dict(s) for s in stops],
+                "total_stops": len(stops)
+            }
+    
+    except Exception as e:
+        logger.error(f"Error fetching route stops: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch route stops: {str(e)}"
         )

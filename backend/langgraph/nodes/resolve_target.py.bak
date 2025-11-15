@@ -1,0 +1,125 @@
+"""
+Resolve Target Node
+Identifies the specific trip/route being referenced
+"""
+from typing import Dict
+import logging
+from langgraph.tools import tool_identify_trip_from_label
+
+logger = logging.getLogger(__name__)
+
+
+async def resolve_target(state: Dict) -> Dict:
+    """
+    Resolve which trip the user is referring to.
+    
+    IMPORTANT: If selectedTripId is provided (from OCR), skip parsing and use it directly.
+    
+    Args:
+        state: Graph state with 'text' and 'action', optionally 'selectedTripId'
+        
+    Returns:
+        Updated state with 'trip_id' and 'trip_label'
+    """
+    # BYPASS: If selectedTripId is provided from OCR, use it directly
+    # This takes priority over action checking
+    selected_trip_id = state.get("selectedTripId")
+    if selected_trip_id:
+        logger.info(f"[BYPASS] Using OCR-resolved trip_id: {selected_trip_id}")
+        
+        # Fetch trip details from database
+        from app.core.supabase_client import get_conn
+        pool = await get_conn()
+        async with pool.acquire() as conn:
+            trip_row = await conn.fetchrow("""
+                SELECT t.trip_id, t.display_name, t.trip_date, t.live_status
+                FROM daily_trips t
+                WHERE t.trip_id = $1
+            """, selected_trip_id)
+        
+        if trip_row:
+            state["trip_id"] = trip_row["trip_id"]
+            state["trip_label"] = trip_row["display_name"]
+            state["trip_date"] = str(trip_row.get("trip_date", ""))
+            state["live_status"] = trip_row.get("live_status", "")
+            logger.info(f"[BYPASS] Resolved to: {trip_row['display_name']} (ID: {trip_row['trip_id']})")
+            return state
+        else:
+            logger.warning(f"[BYPASS] Trip ID {selected_trip_id} not found in database")
+            state["status"] = "not_found"
+            state["error"] = "trip_not_found"
+            state["message"] = f"Trip ID {selected_trip_id} not found in system."
+            return state
+    
+    # Skip if action is unknown or already has error (only for non-OCR flow)
+    if state.get("action") == "unknown" or state.get("error"):
+        return state
+            """, selected_trip_id)
+        
+        if trip_row:
+            state["trip_id"] = trip_row["trip_id"]
+            state["trip_label"] = trip_row["display_name"]
+            state["trip_date"] = str(trip_row.get("trip_date", ""))
+            state["live_status"] = trip_row.get("live_status", "")
+            logger.info(f"[BYPASS] Resolved to: {trip_row['display_name']} (ID: {trip_row['trip_id']})")
+            return state
+        else:
+            logger.warning(f"[BYPASS] Trip ID {selected_trip_id} not found in database")
+            state["status"] = "not_found"
+            state["error"] = "trip_not_found"
+            state["message"] = f"Trip ID {selected_trip_id} not found in system."
+            return state
+    
+    # Normal text parsing flow
+    text = state.get("text", "")
+    logger.info(f"Resolving target from: {text}")
+    
+    # Extract trip name from common patterns
+    # E.g., "Remove vehicle from Bulk - 00:01" -> "Bulk - 00:01"
+    # E.g., "Cancel trip Bulk - 00:01" -> "Bulk - 00:01"
+    # E.g., "Cancel Path-3 - 07:30" -> "Path-3 - 07:30"
+    import re
+    
+    # Look for patterns like "from X", "cancel X", "trip X", or just use the whole text
+    trip_label = text
+    
+    # Try: "from [trip_name]"
+    from_match = re.search(r'\bfrom\s+(.+?)(?:\s+vehicle|\s+at|\s*$)', text, re.IGNORECASE)
+    if from_match:
+        trip_label = from_match.group(1).strip()
+        logger.info(f"[DEBUG] Extracted from 'from' pattern: '{trip_label}'")
+    # Try: "cancel [trip_name]" - match cancel followed by trip name
+    elif re.search(r'\bcancel\s+', text, re.IGNORECASE):
+        cancel_match = re.search(r'\bcancel\s+(?:trip\s+)?(.+?)$', text, re.IGNORECASE)
+        if cancel_match:
+            trip_label = cancel_match.group(1).strip()
+            logger.info(f"[DEBUG] Extracted from 'cancel' pattern: '{trip_label}'")
+    # Try: "trip [trip_name]" or "vehicle to [trip_name]" or "assign [trip_name]"
+    elif re.search(r'\b(trip|to|assign)\s+', text, re.IGNORECASE):
+        trip_match = re.search(r'\b(?:trip|to|assign)\s+(?:vehicle\s+)?(?:to\s+)?(.+?)$', text, re.IGNORECASE)
+        if trip_match:
+            trip_label = trip_match.group(1).strip()
+            logger.info(f"[DEBUG] Extracted from 'trip/to/assign' pattern: '{trip_label}'")
+    
+    # Try to find trip by searching the extracted label
+    logger.info(f"[DEBUG] About to call tool_identify_trip_from_label with text: '{trip_label}'")
+    trip = await tool_identify_trip_from_label(trip_label)
+    logger.info(f"[DEBUG] Tool returned: {trip}")
+    
+    if trip:
+        state["trip_id"] = trip["trip_id"]
+        state["trip_label"] = trip["display_name"]
+        state["trip_date"] = str(trip.get("trip_date", ""))
+        state["live_status"] = trip.get("live_status", "")
+        
+        logger.info(f"Resolved to trip_id: {trip['trip_id']} ({trip['display_name']})")
+    else:
+        state["status"] = "not_found"
+        state["error"] = "trip_not_found"
+        state["message"] = (
+            f"I couldn't find a trip matching '{text}'. "
+            "Please check the trip name and try again."
+        )
+        logger.warning(f"Could not resolve trip from: {text}")
+    
+    return state

@@ -1,0 +1,486 @@
+import React, { useState, useEffect, useRef } from 'react';
+import MessageList from './MessageList';
+import ChatInput from './ChatInput';
+import ConfirmationCard from './ConfirmationCard';
+import ImageUploadButton from './ImageUploadButton';
+import ImageBubble from './ImageBubble';
+import { sendAgentMessage, confirmAgentAction, uploadAgentImage } from '../../api';
+
+const MoviWidget = ({ context = {}, onRefresh }) => {
+  const [messages, setMessages] = useState([]);
+  const [sessionId, setSessionId] = useState(null);
+  const [awaitingConfirm, setAwaitingConfirm] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const messagesEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, loading]);
+
+  const handleSendMessage = async (text) => {
+    if (!text.trim() || loading || awaitingConfirm) return;
+
+    // Add user message to chat
+    const userMessage = {
+      id: Date.now(),
+      type: 'user',
+      text: text.trim(),
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, userMessage]);
+    setError(null);
+    setLoading(true);
+
+    try {
+      // Prepare payload
+      const payload = {
+        text: text.trim(),
+        user_id: 1,
+        currentPage: context.currentPage || 'busDashboard',
+        selectedTripId: context.selectedTrip?.trip_id || context.selectedTripId,
+        selectedRouteId: context.selectedRoute?.route_id || context.selectedRouteId,
+      };
+
+      // Call backend
+      const response = await sendAgentMessage(payload);
+      const agentReply = response.data;
+
+      // Process agent response
+      processAgentResponse(agentReply);
+    } catch (err) {
+      console.error('Error sending message:', err);
+      setError('Failed to send message. Please try again.');
+      
+      // Add error message to chat
+      const errorMessage = {
+        id: Date.now(),
+        type: 'error',
+        text: 'Sorry, I encountered an error. Please try again.',
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const processAgentResponse = (agentReply) => {
+    // Detect response type and add appropriate message
+    
+    // 1. Check for clarification needed (ambiguous target)
+    if (agentReply.needs_clarification && agentReply.options) {
+      const clarificationMessage = {
+        id: Date.now(),
+        type: 'clarification',
+        text: agentReply.message || 'Which trip did you mean?',
+        options: agentReply.options,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, clarificationMessage]);
+      return;
+    }
+
+    // 2. Check for consequence evaluation (awaiting confirmation)
+    if (agentReply.awaiting_confirmation || agentReply.needs_confirmation) {
+      const consequenceMessage = {
+        id: Date.now(),
+        type: 'consequence',
+        action: agentReply.action,
+        trip_id: agentReply.trip_id,
+        consequences: agentReply.consequences,
+        message: agentReply.message,
+        session_id: agentReply.session_id,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, consequenceMessage]);
+      setSessionId(agentReply.session_id);
+      setAwaitingConfirm(true);
+      return;
+    }
+
+    // 3. Check for execution result
+    if (agentReply.executed_action) {
+      const executionMessage = {
+        id: Date.now(),
+        type: 'execution',
+        action: agentReply.executed_action,
+        trip_id: agentReply.trip_id,
+        text: agentReply.message,
+        new_state: agentReply.new_state,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, executionMessage]);
+      
+      // Trigger refresh and reset session
+      if (onRefresh) {
+        setTimeout(() => onRefresh(), 500);
+      }
+      setSessionId(null);
+      setAwaitingConfirm(false);
+      return;
+    }
+
+    // 4. Check for fallback
+    if (agentReply.fallback) {
+      const fallbackMessage = {
+        id: Date.now(),
+        type: 'fallback',
+        text: agentReply.message || "I couldn't understand that. Could you rephrase?",
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, fallbackMessage]);
+      return;
+    }
+
+    // 5. Normal text response
+    const normalMessage = {
+      id: Date.now(),
+      type: 'agent',
+      text: agentReply.message || agentReply.text || 'I processed your request.',
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, normalMessage]);
+  };
+
+  const handleConfirm = async (confirm) => {
+    if (!sessionId) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await confirmAgentAction({
+        session_id: sessionId,
+        confirm: confirm,
+      });
+
+      const result = response.data;
+
+      if (confirm) {
+        // User confirmed - show success
+        const successMessage = {
+          id: Date.now(),
+          type: 'execution',
+          text: result.message || 'Action executed successfully.',
+          action: result.action,
+          trip_id: result.trip_id,
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, successMessage]);
+
+        // Trigger refresh
+        if (onRefresh) {
+          setTimeout(() => onRefresh(), 500);
+        }
+      } else {
+        // User cancelled
+        const cancelMessage = {
+          id: Date.now(),
+          type: 'agent',
+          text: result.message || 'Action cancelled. No changes were made.',
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, cancelMessage]);
+      }
+
+      // Reset confirmation state
+      setSessionId(null);
+      setAwaitingConfirm(false);
+    } catch (err) {
+      console.error('Error confirming action:', err);
+      setError('Failed to confirm action. Please try again.');
+      
+      const errorMessage = {
+        id: Date.now(),
+        type: 'error',
+        text: 'Sorry, I encountered an error processing your confirmation.',
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOptionClick = (option) => {
+    // When user clicks an ambiguous option, send it as a new message
+    handleSendMessage(option.name || option.text || `Trip ${option.trip_id}`);
+  };
+
+  const handleClearChat = () => {
+    setMessages([]);
+    setSessionId(null);
+    setAwaitingConfirm(false);
+    setError(null);
+  };
+
+  const handleImageUpload = async (file) => {
+    console.log('[MoviWidget] handleImageUpload called with file:', file);
+    console.log('[MoviWidget] Current state - loading:', loading, 'awaitingConfirm:', awaitingConfirm);
+    
+    if (!file || loading || awaitingConfirm) {
+      console.log('[MoviWidget] Aborting upload - file:', !!file, 'loading:', loading, 'awaitingConfirm:', awaitingConfirm);
+      return;
+    }
+
+    console.log('[MoviWidget] Creating object URL and image message');
+    const imageUrl = URL.createObjectURL(file);
+    const imageMessage = {
+      id: Date.now(),
+      type: 'image',
+      isUser: true,
+      imageUrl,
+      fileName: file.name,
+      status: 'uploading',
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, imageMessage]);
+    setError(null);
+    setLoading(true);
+
+    try {
+      console.log('[MoviWidget] Creating FormData and uploading...');
+      const formData = new FormData();
+      formData.append('file', file);
+      console.log('[MoviWidget] Calling uploadAgentImage API...');
+      const response = await uploadAgentImage(formData);
+      console.log('[MoviWidget] OCR Response:', response.data);
+      const ocrResult = response.data;
+
+      console.log('[MoviWidget] Updating message status to processing');
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === imageMessage.id ? { ...msg, status: 'processing' } : msg
+        )
+      );
+
+      if (ocrResult.match_type === 'single' && ocrResult.auto_forward) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === imageMessage.id
+              ? { ...msg, status: 'success', text: `Identified: ${ocrResult.display_name}` }
+              : msg
+          )
+        );
+
+        const autoPayload = {
+          text: '<image>',
+          user_id: 1,
+          currentPage: context.currentPage || 'busDashboard',
+          selectedTripId: ocrResult.trip_id,
+          selectedRouteId: context.selectedRoute?.route_id || context.selectedRouteId,
+        };
+
+        const agentResponse = await sendAgentMessage(autoPayload);
+        processAgentResponse(agentResponse.data);
+      } else if (ocrResult.match_type === 'multiple' && ocrResult.needs_clarification) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === imageMessage.id ? { ...msg, status: 'success', text: 'Image processed' } : msg
+          )
+        );
+
+        const clarificationMessage = {
+          id: Date.now() + 1,
+          type: 'clarification',
+          text: ocrResult.message || 'Which trip did you mean?',
+          options: ocrResult.candidates.map(c => ({
+            trip_id: c.trip_id,
+            name: c.display_name,
+            text: `${c.display_name} (${(c.confidence * 100).toFixed(0)}% match)`,
+          })),
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, clarificationMessage]);
+      } else {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === imageMessage.id ? { ...msg, status: 'error', text: 'Could not identify trip' } : msg
+          )
+        );
+
+        const fallbackMessage = {
+          id: Date.now() + 1,
+          type: 'fallback',
+          text: ocrResult.message || 'Could not identify trip from image.',
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, fallbackMessage]);
+      }
+    } catch (err) {
+      console.error('Error uploading image:', err);
+      setError('Failed to process image.');
+
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === imageMessage.id ? { ...msg, status: 'error', text: 'Upload failed' } : msg
+        )
+      );
+    } finally {
+      setLoading(false);
+      URL.revokeObjectURL(imageUrl);
+    }
+  };
+
+  return (
+    <>
+      {/* Toggle Button */}
+      {!isOpen && (
+      isUser: true,
+      imageUrl: imageUrl,
+      fileName: file.name,
+      status: 'uploading',
+      timestamp: new Date().toISOString(),
+    };
+          {/* Input */}
+          <ChatInput
+            onSend={handleSendMessage}
+            onImageSelect={handleImageUpload}
+            disabled={loading || awaitingConfirm}
+            placeholder={
+              awaitingConfirm
+                ? 'Please confirm or cancel the action above'
+                : 'Type a message...'
+            }
+          />oad to OCR endpoint
+      const response = await uploadAgentImage(formData);
+      const ocrResult = response.data;
+
+      // Update image message to processing
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === imageMessage.id
+            ? { ...msg, status: 'processing' }
+            : msg
+        )
+      );
+
+      console.log('OCR Result:', ocrResult);
+
+      // Handle different match types
+      if (ocrResult.match_type === 'single' && ocrResult.auto_forward) {
+        // CASE A: Single confident match - auto-forward to agent
+        
+        // Update image message to success
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === imageMessage.id
+              ? { 
+                  ...msg, 
+                  status: 'success',
+                  text: `Identified: ${ocrResult.display_name}`
+                }
+              : msg
+          )
+        );
+
+        // Auto-forward to agent with resolved trip_id
+        const autoPayload = {
+          text: '<image>',
+          user_id: 1,
+          currentPage: context.currentPage || 'busDashboard',
+          selectedTripId: ocrResult.trip_id,
+          selectedRouteId: context.selectedRoute?.route_id || context.selectedRouteId,
+        };
+
+        const agentResponse = await sendAgentMessage(autoPayload);
+        processAgentResponse(agentResponse.data);
+
+      } else if (ocrResult.match_type === 'multiple' && ocrResult.needs_clarification) {
+        // CASE B: Multiple matches - show clarification options
+        
+        // Update image message to success
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === imageMessage.id
+              ? { ...msg, status: 'success', text: 'Image processed' }
+              : msg
+          )
+        );
+
+        // Add clarification message
+        const clarificationMessage = {
+          id: Date.now() + 1,
+          type: 'clarification',
+          text: ocrResult.message || 'I found multiple possible trips. Which one did you mean?',
+          options: ocrResult.candidates.map(c => ({
+            trip_id: c.trip_id,
+            name: c.display_name,
+            text: `${c.display_name} (${(c.confidence * 100).toFixed(0)}% match)`,
+            confidence: c.confidence
+          })),
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, clarificationMessage]);
+
+      } else {
+        // CASE C: No match - show fallback
+        
+        // Update image message to error
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === imageMessage.id
+              ? { ...msg, status: 'error', text: 'Could not identify trip' }
+              : msg
+          )
+        );
+
+        // Add fallback message
+        const fallbackMessage = {
+          id: Date.now() + 1,
+          type: 'fallback',
+          text: ocrResult.message || 'I could not identify a trip from this image. Please try a clearer image or type the trip name.',
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, fallbackMessage]);
+
+        // Show OCR text if available (for debugging)
+        if (ocrResult.ocr_text) {
+          console.log('OCR extracted text:', ocrResult.ocr_text);
+        }
+      }
+
+    } catch (err) {
+      console.error('Error uploading image:', err);
+      setError('Failed to process image. Please try again.');
+
+      // Update image message to error
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === imageMessage.id
+            ? { ...msg, status: 'error', text: 'Upload failed' }
+            : msg
+        )
+      );
+
+      // Add error message
+      const errorMessage = {
+        id: Date.now() + 1,
+        type: 'error',
+        text: 'Sorry, I encountered an error processing your image.',
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setLoading(false);
+      // Clean up object URL
+      URL.revokeObjectURL(imageUrl);
+    }
+  };
+
+  return (
+    <>
+      {/* Toggle Button */}
+      {!isOpen && (
+        <button
+          onClick={() => setIsOpen(true)}
+          className="fixed bottom-6 right-6 bg-blue-600 hover:bg-blue-700 text-white rounded-full p-4 shadow-lg transition-all duration-300 z-50 flex items-center justify-center"
+          aria-label="Open MOVI Assistant"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

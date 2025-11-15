@@ -19,6 +19,9 @@ export default function BusDashboard() {
       setError(null);
       const response = await getDashboard();
       
+      console.log("📊 Dashboard API Response:", response.data);
+      console.log("🚌 Sample trip data:", response.data.trips?.[0]);
+      
       setTrips(response.data.trips || []);
       setSummary(response.data.summary || {});
       
@@ -99,7 +102,14 @@ export default function BusDashboard() {
       </div>
 
       {/* Floating Movi Widget */}
-      <MoviWidget context={{ page: "busDashboard", selectedTrip }} />
+      <MoviWidget 
+        context={{ 
+          currentPage: "busDashboard", 
+          selectedTrip: selectedTrip,
+          selectedTripId: selectedTrip?.trip_id
+        }} 
+        onRefresh={loadData}
+      />
     </div>
   );
 }

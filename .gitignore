@@ -27,6 +27,13 @@ wheels/
 .env.local
 .env.*.local
 
+# Google Cloud Service Account credentials
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+movigenai-*.json
+
 # IDE
 .vscode/
 .idea/

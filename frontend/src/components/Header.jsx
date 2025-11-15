@@ -51,28 +51,49 @@ export default function Header({ onRefresh, summary }) {
           </button>
         </div>
 
-        {/* Summary Stats */}
+        {/* Enhanced Summary Stats with Missing Features */}
         {summary && Object.keys(summary).length > 0 && (
-          <div className="mt-4 flex gap-6 text-sm">
-            <div className="bg-blue-800 bg-opacity-50 px-4 py-2 rounded-lg">
-              <span className="text-blue-200">Total Trips:</span>
-              <span className="ml-2 font-bold">{summary.total_trips || 0}</span>
+          <div className="mt-4 grid grid-cols-5 gap-4">
+            {/* Total Trips */}
+            <div className="bg-white bg-opacity-20 backdrop-blur-sm px-4 py-3 rounded-xl border border-white border-opacity-30 hover:bg-opacity-25 transition-all">
+              <p className="text-blue-100 text-xs font-medium mb-1">Total Trips</p>
+              <p className="text-2xl font-bold">{summary.total_trips || 0}</p>
             </div>
-            <div className="bg-blue-800 bg-opacity-50 px-4 py-2 rounded-lg">
-              <span className="text-blue-200">Deployed:</span>
-              <span className="ml-2 font-bold text-green-300">{summary.deployed || 0}</span>
+
+            {/* Deployed vs Pending */}
+            <div className="bg-white bg-opacity-20 backdrop-blur-sm px-4 py-3 rounded-xl border border-white border-opacity-30 hover:bg-opacity-25 transition-all">
+              <p className="text-blue-100 text-xs font-medium mb-1">Deployed</p>
+              <p className="text-2xl font-bold text-green-300">{summary.deployed || 0}</p>
+              <p className="text-xs text-blue-200 mt-1">
+                {summary.pending_deployment || 0} pending
+              </p>
             </div>
-            <div className="bg-blue-800 bg-opacity-50 px-4 py-2 rounded-lg">
-              <span className="text-blue-200">Pending:</span>
-              <span className="ml-2 font-bold text-yellow-300">{summary.pending_deployment || 0}</span>
+
+            {/* Vehicles Not Assigned (Missing Feature A) */}
+            <div className="bg-white bg-opacity-20 backdrop-blur-sm px-4 py-3 rounded-xl border border-white border-opacity-30 hover:bg-opacity-25 transition-all">
+              <p className="text-blue-100 text-xs font-medium mb-1">Vehicles Not Assigned</p>
+              <p className="text-2xl font-bold text-orange-300">
+                {summary.pending_deployment || 0}
+              </p>
+              <p className="text-xs text-blue-200 mt-1">trips need vehicles</p>
             </div>
-            <div className="bg-blue-800 bg-opacity-50 px-4 py-2 rounded-lg">
-              <span className="text-blue-200">Total Bookings:</span>
-              <span className="ml-2 font-bold">{summary.total_bookings || 0}</span>
+
+            {/* Bookings */}
+            <div className="bg-white bg-opacity-20 backdrop-blur-sm px-4 py-3 rounded-xl border border-white border-opacity-30 hover:bg-opacity-25 transition-all">
+              <p className="text-blue-100 text-xs font-medium mb-1">Total Bookings</p>
+              <p className="text-2xl font-bold">{summary.total_bookings || 0}</p>
+              <p className="text-xs text-blue-200 mt-1">
+                {summary.total_seats_booked || 0} seats
+              </p>
             </div>
-            <div className="bg-blue-800 bg-opacity-50 px-4 py-2 rounded-lg">
-              <span className="text-blue-200">Seats Booked:</span>
-              <span className="ml-2 font-bold">{summary.total_seats_booked || 0}</span>
+
+            {/* Ongoing Trips (Missing Feature A) */}
+            <div className="bg-white bg-opacity-20 backdrop-blur-sm px-4 py-3 rounded-xl border border-white border-opacity-30 hover:bg-opacity-25 transition-all">
+              <p className="text-blue-100 text-xs font-medium mb-1">Ongoing Trips</p>
+              <p className="text-2xl font-bold text-yellow-300">
+                {summary.ongoing_trips || 0}
+              </p>
+              <p className="text-xs text-blue-200 mt-1">currently running</p>
             </div>
           </div>
         )}
