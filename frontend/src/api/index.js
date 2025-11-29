@@ -1,7 +1,12 @@
 import axios from "axios";
 
+// Use VITE_API_URL for consistency with MoviWidget
+const API_BASE = import.meta.env.VITE_API_URL 
+  ? `${import.meta.env.VITE_API_URL}/api` 
+  : "http://localhost:8000/api";
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_URL || "http://localhost:8000/api",
+  baseURL: API_BASE,
   headers: { 
     "x-api-key": import.meta.env.VITE_MOVI_API_KEY || "dev-key-change-in-production" 
   },
