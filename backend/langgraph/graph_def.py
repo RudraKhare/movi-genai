@@ -19,26 +19,32 @@ from langgraph.nodes import (
 from langgraph.nodes.decision_router import decision_router, route_decision
 from langgraph.nodes.suggestion_provider import suggestion_provider
 from langgraph.nodes.vehicle_selection_provider import vehicle_selection_provider
+from langgraph.nodes.driver_selection_provider import driver_selection_provider
 from langgraph.nodes.create_trip_suggester import create_trip_suggester
 from langgraph.nodes.trip_creation_wizard import trip_creation_wizard
 from langgraph.nodes.collect_user_input import collect_user_input
 
-# Feature flag for LLM-based intent parsing
-USE_LLM_PARSE = os.getenv("USE_LLM_PARSE", "false").lower() == "true"
+# Tutorial: Import your new node
+from langgraph.nodes.get_trip_summary import get_trip_summary
 
-# Import LLM node if enabled
-if USE_LLM_PARSE:
-    try:
-        from langgraph.nodes.parse_intent_llm import parse_intent_llm
-        logger = logging.getLogger(__name__)
-        logger.info("🤖 LLM parse mode enabled")
-    except ImportError as e:
-        logger = logging.getLogger(__name__)
-        logger.error(f"Failed to import parse_intent_llm: {e}. Falling back to classic parse.")
-        USE_LLM_PARSE = False
+# Feature flag for LLM-based intent parsing - Default to TRUE for natural language support
+USE_LLM_PARSE = os.getenv("USE_LLM_PARSE", "true").lower() == "true"
+
+# Always try to import LLM node first
+logger = logging.getLogger(__name__)
+try:
+    from langgraph.nodes.parse_intent_llm import parse_intent_llm
+    LLM_AVAILABLE = True
+    logger.info("🤖 LLM parse_intent_llm imported successfully")
+except ImportError as e:
+    LLM_AVAILABLE = False
+    logger.error(f"Failed to import parse_intent_llm: {e}. Will fallback to classic parse.")
+
+# Determine which parser to use
+if USE_LLM_PARSE and LLM_AVAILABLE:
+    logger.info("🤖 LLM parse mode enabled - Natural language support active")
 else:
-    logger = logging.getLogger(__name__)
-    logger.info("📝 Classic parse mode enabled")
+    logger.info("📝 Classic parse mode enabled - Regex-based parsing only")
 
 
 class Graph:
@@ -80,14 +86,13 @@ class Graph:
 # Create the MOVI agent graph
 graph = Graph(name="movi_agent")
 
-# Register all nodes
-# Conditional: Use LLM or classic parser
-if USE_LLM_PARSE:
+# Register parse intent node - Always prefer LLM if available
+if USE_LLM_PARSE and LLM_AVAILABLE:
     graph.add_node("parse_intent", parse_intent_llm)
-    logger.info("Registered LLM parse_intent node")
+    logger.info("✅ Registered LLM parse_intent node - Natural language parsing enabled")
 else:
     graph.add_node("parse_intent", parse_intent)
-    logger.info("Registered classic parse_intent node")
+    logger.info("⚠️ Registered classic parse_intent node - Limited regex parsing only")
 
 graph.add_node("resolve_target", resolve_target)
 graph.add_node("check_consequences", check_consequences)
@@ -100,15 +105,24 @@ graph.add_node("fallback", fallback)
 graph.add_node("decision_router", decision_router)
 graph.add_node("suggestion_provider", suggestion_provider)
 graph.add_node("vehicle_selection_provider", vehicle_selection_provider)
+graph.add_node("driver_selection_provider", driver_selection_provider)
 graph.add_node("create_trip_suggester", create_trip_suggester)
 graph.add_node("trip_creation_wizard", trip_creation_wizard)
 graph.add_node("collect_user_input", collect_user_input)
+
+# Tutorial: Register your new node
+graph.add_node("get_trip_summary", get_trip_summary)
+logger.info("✅ Registered get_trip_summary node - Tutorial example")
+
 logger.info("Registered Phase 3 conversational nodes")
 
 # === EDGES: Main Flow ===
 
-# parse_intent → resolve_target
-graph.add_edge("parse_intent", "resolve_target")
+# parse_intent → resolve_target (normal flow)
+graph.add_edge("parse_intent", "resolve_target", condition=lambda s: s.get("next_node") != "execute_action")
+
+# parse_intent → execute_action (for add_vehicle/add_driver wizard continuation)
+graph.add_edge("parse_intent", "execute_action", condition=lambda s: s.get("next_node") == "execute_action")
 
 # resolve_target → decision_router (Phase 3: new routing layer)
 graph.add_edge(
@@ -131,6 +145,9 @@ def route_to_suggestion_provider(state):
 def route_to_vehicle_selection_provider(state):
     return state.get("next_node") == "vehicle_selection_provider"
 
+def route_to_driver_selection_provider(state):
+    return state.get("next_node") == "driver_selection_provider"
+
 def route_to_create_trip_suggester(state):
     return state.get("next_node") == "create_trip_suggester"
 
@@ -143,16 +160,25 @@ def route_to_check_consequences(state):
 def route_to_report_result(state):
     return state.get("next_node") == "report_result"
 
+# Tutorial: Add routing function for our new node
+def route_to_get_trip_summary(state):
+    return state.get("next_node") == "get_trip_summary"
+
 def route_to_collect_user_input(state):
     return state.get("next_node") == "collect_user_input"
 
 # From decision_router
 graph.add_edge("decision_router", "suggestion_provider", condition=route_to_suggestion_provider)
 graph.add_edge("decision_router", "vehicle_selection_provider", condition=route_to_vehicle_selection_provider)
+graph.add_edge("decision_router", "driver_selection_provider", condition=route_to_driver_selection_provider)
 graph.add_edge("decision_router", "create_trip_suggester", condition=route_to_create_trip_suggester)
 graph.add_edge("decision_router", "trip_creation_wizard", condition=route_to_trip_creation_wizard)
 graph.add_edge("decision_router", "check_consequences", condition=route_to_check_consequences)
+graph.add_edge("decision_router", "collect_user_input", condition=lambda s: s.get("next_node") == "collect_user_input")  # For wizard input
 graph.add_edge("decision_router", "report_result", condition=route_to_report_result)
+
+# Tutorial: Add edge from decision_router to our new node
+graph.add_edge("decision_router", "get_trip_summary", condition=route_to_get_trip_summary)
 
 # === EDGES: Wizard Flow (Phase 3) ===
 
@@ -162,14 +188,21 @@ graph.add_edge("suggestion_provider", "report_result")
 # vehicle_selection_provider → report_result (shows vehicle options)
 graph.add_edge("vehicle_selection_provider", "report_result")
 
+# driver_selection_provider → report_result (shows driver options)
+graph.add_edge("driver_selection_provider", "report_result")
+
 # create_trip_suggester → report_result (shows offer)
 graph.add_edge("create_trip_suggester", "report_result")
 
-# trip_creation_wizard → collect_user_input (get wizard input)
-graph.add_edge("trip_creation_wizard", "collect_user_input", condition=lambda s: s.get("awaiting_wizard_input"))
+# Tutorial: Our node goes to report_result to show the summary
+graph.add_edge("get_trip_summary", "report_result")
 
-# trip_creation_wizard → report_result (wizard completed or error)
-graph.add_edge("trip_creation_wizard", "report_result", condition=lambda s: not s.get("awaiting_wizard_input"))
+# trip_creation_wizard → collect_user_input (get wizard input) - ONLY if explicitly routed there
+graph.add_edge("trip_creation_wizard", "collect_user_input", condition=lambda s: s.get("next_node") == "collect_user_input")
+
+# trip_creation_wizard → report_result (wizard asking for input OR wizard completed/error)
+# The wizard now returns to report_result to show the prompt to the user
+graph.add_edge("trip_creation_wizard", "report_result", condition=lambda s: s.get("next_node") == "report_result" or s.get("next_node") != "collect_user_input")
 
 # collect_user_input routes back
 graph.add_edge("collect_user_input", "trip_creation_wizard", condition=lambda s: s.get("next_node") == "trip_creation_wizard")

@@ -7,10 +7,49 @@ import { getDashboard } from "../api";
 
 export default function BusDashboard() {
   const [trips, setTrips] = useState([]);
-  const [selectedTrip, setSelectedTrip] = useState(null);
-  const [summary, setSummary] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [selectedTrip, setSelectedTrip] = useState(null);
+
+  // Enhanced trip selection with context logging
+  const handleTripSelect = (trip) => {
+    console.log("🔥 [BusDashboard] DEBUGGING TRIP SELECTION:");
+    console.log("   Selected trip:", trip);
+    console.log("   Trip ID:", trip?.trip_id);
+    console.log("   Trip route name:", trip?.route_name);
+    
+    setSelectedTrip(trip);
+    
+    // Immediate context verification
+    setTimeout(() => {
+      console.log("🎯 [BusDashboard] Context being passed to MoviWidget:", {
+        currentPage: 'busDashboard',
+        selectedTrip: trip,
+        selectedTripId: trip?.trip_id
+      });
+    }, 100);
+  };
+  
+  // Debug context changes
+  useEffect(() => {
+    console.log('🔍 [BusDashboard] 📊 Selected trip state changed:', {
+      trip: selectedTrip,
+      tripId: selectedTrip?.trip_id,
+      routeName: selectedTrip?.route_name,
+      hasSelectedTrip: !!selectedTrip,
+      timestamp: new Date().toISOString()
+    });
+  }, [selectedTrip]);
+
+  // Debug every render to see if context is maintained
+  console.log('🔍 [BusDashboard] RENDER - Current state:', {
+    selectedTrip: selectedTrip,
+    selectedTripId: selectedTrip?.trip_id,
+    tripsCount: trips.length,
+    loading: loading
+  });
+  
+  const [summary, setSummary] = useState({});
 
   // Load dashboard data from API
   const loadData = async () => {
@@ -52,6 +91,21 @@ export default function BusDashboard() {
 
       {/* Main content area */}
       <div className="flex h-[calc(100vh-140px)]">
+        {/* Test Button for Debugging Trip Selection */}
+        <div className="absolute top-20 left-4 z-50">
+          <button 
+            onClick={() => {
+              const testTrip = trips[0]; // First trip from the list
+              console.log("🧪 [TEST] Simulating trip selection with:", testTrip);
+              handleTripSelect(testTrip);
+            }}
+            className="bg-red-500 text-white px-3 py-1 rounded text-sm"
+            disabled={trips.length === 0}
+          >
+            🧪 Test Select Trip {trips.length > 0 ? trips[0]?.trip_id : ''}
+          </button>
+        </div>
+
         {/* Left sidebar - Trip List */}
         <div className="w-96 bg-white border-r border-gray-200 overflow-y-auto">
           {loading && trips.length === 0 ? (
@@ -77,7 +131,7 @@ export default function BusDashboard() {
           ) : (
             <TripList
               trips={trips}
-              onSelect={setSelectedTrip}
+              onSelect={handleTripSelect}
               selected={selectedTrip}
             />
           )}
@@ -103,11 +157,15 @@ export default function BusDashboard() {
 
       {/* Floating Movi Widget */}
       <MoviWidget 
-        context={{ 
-          currentPage: "busDashboard", 
-          selectedTrip: selectedTrip,
-          selectedTripId: selectedTrip?.trip_id
-        }} 
+        context={(() => {
+          const contextObj = {
+            currentPage: "busDashboard", 
+            selectedTrip: selectedTrip,
+            selectedTripId: selectedTrip?.trip_id
+          };
+          console.log("🚀 [BusDashboard] Rendering MoviWidget with context:", contextObj);
+          return contextObj;
+        })()} 
         onRefresh={loadData}
       />
     </div>

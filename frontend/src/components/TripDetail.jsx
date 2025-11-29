@@ -1,13 +1,23 @@
 import { useState, useEffect } from "react";
-import AssignModal from "./AssignModal";
-import { removeVehicle, cancelTrip, getRouteStops } from "../api";
+import AssignVehicleModal from "./AssignVehicleModal";
+import AssignDriverModal from "./AssignDriverModal";
+import ConfirmationModal from "./ConfirmationModal";
+import TripStatusBadge from "./TripStatusBadge";
+import { removeVehicle, cancelTrip, getRouteStops, addBookings, reduceBookings } from "../api";
 
 export default function TripDetail({ trip, onRefresh }) {
-  const [showAssign, setShowAssign] = useState(false);
+  const [showAssignVehicle, setShowAssignVehicle] = useState(false);
+  const [showAssignDriver, setShowAssignDriver] = useState(false);
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [bookingLoading, setBookingLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [bookingError, setBookingError] = useState(null);
+  const [bookingSuccess, setBookingSuccess] = useState(null);
   const [stops, setStops] = useState([]);
   const [loadingStops, setLoadingStops] = useState(false);
+  const [bookingCount, setBookingCount] = useState(1);
 
   // Fetch stops when trip changes
   useEffect(() => {
@@ -29,9 +39,19 @@ export default function TripDetail({ trip, onRefresh }) {
     fetchStops();
   }, [trip?.route_id]);
 
+  // Clear messages when trip changes
+  useEffect(() => {
+    setBookingError(null);
+    setBookingSuccess(null);
+    setBookingCount(1);
+  }, [trip?.trip_id]);
+
+  // Calculate booking stats for confirmation dialogs
+  const bookedCount = trip?.booked_count || 0;
+  const capacity = trip?.capacity || 40;
+  const bookingPercentage = Math.round((bookedCount / capacity) * 100);
+
   const handleRemove = async () => {
-    if (!confirm("Remove vehicle deployment from this trip? Bookings will remain.")) return;
-    
     setLoading(true);
     setError(null);
     try {
@@ -40,17 +60,17 @@ export default function TripDetail({ trip, onRefresh }) {
         user_id: 999,
         cancel_bookings: false
       });
+      setShowRemoveConfirm(false);
       await onRefresh();
     } catch (err) {
       setError(err.response?.data?.error || "Failed to remove vehicle");
+      setShowRemoveConfirm(false);
     } finally {
       setLoading(false);
     }
   };
 
   const handleCancel = async () => {
-    if (!confirm("Cancel this trip? All confirmed bookings will be cancelled.")) return;
-    
     setLoading(true);
     setError(null);
     try {
@@ -58,11 +78,64 @@ export default function TripDetail({ trip, onRefresh }) {
         trip_id: trip.trip_id, 
         user_id: 999
       });
+      setShowCancelConfirm(false);
       await onRefresh();
     } catch (err) {
       setError(err.response?.data?.error || "Failed to cancel trip");
+      setShowCancelConfirm(false);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAddBookings = async () => {
+    if (!trip.vehicle_id) {
+      setBookingError("Cannot add bookings - no vehicle assigned");
+      return;
+    }
+    
+    setBookingLoading(true);
+    setBookingError(null);
+    setBookingSuccess(null);
+    
+    try {
+      const response = await addBookings(trip.trip_id, bookingCount);
+      setBookingSuccess(response.data.message || `Added ${bookingCount} booking(s)`);
+      setBookingCount(1);
+      await onRefresh();
+    } catch (err) {
+      setBookingError(err.response?.data?.error || err.response?.data?.message || "Failed to add bookings");
+    } finally {
+      setBookingLoading(false);
+    }
+  };
+
+  const handleReduceBookings = async () => {
+    if ((trip.booked_count || 0) === 0) {
+      setBookingError("No bookings to reduce");
+      return;
+    }
+    
+    if (bookingCount > (trip.booked_count || 0)) {
+      setBookingError(`Cannot reduce by ${bookingCount}. Only ${trip.booked_count} booking(s) exist.`);
+      return;
+    }
+    
+    if (!confirm(`Reduce ${bookingCount} booking(s) from this trip?`)) return;
+    
+    setBookingLoading(true);
+    setBookingError(null);
+    setBookingSuccess(null);
+    
+    try {
+      const response = await reduceBookings(trip.trip_id, bookingCount);
+      setBookingSuccess(response.data.message || `Reduced ${bookingCount} booking(s)`);
+      setBookingCount(1);
+      await onRefresh();
+    } catch (err) {
+      setBookingError(err.response?.data?.error || err.response?.data?.message || "Failed to reduce bookings");
+    } finally {
+      setBookingLoading(false);
     }
   };
 
@@ -82,17 +155,29 @@ export default function TripDetail({ trip, onRefresh }) {
           </div>
         </div>
 
-        {/* Status Badge */}
-        <div className="mb-6">
-          <span className={`inline-block px-4 py-2 rounded-lg font-semibold ${
-            trip.live_status === "COMPLETED" ? "bg-green-100 text-green-800" :
-            trip.live_status === "IN_PROGRESS" ? "bg-blue-100 text-blue-800" :
-            trip.live_status === "SCHEDULED" ? "bg-yellow-100 text-yellow-800" :
-            trip.live_status === "CANCELLED" ? "bg-red-100 text-red-800" :
-            "bg-gray-100 text-gray-800"
-          }`}>
-            Status: {trip.live_status}
-          </span>
+        {/* Status Badge with Live Updates */}
+        <div className="mb-6 flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-gray-700 font-medium">Current Status:</span>
+            <TripStatusBadge 
+              trip={trip} 
+              onStatusChange={(tripId, newStatus) => {
+                console.log(`🔄 Trip ${tripId} status changed to ${newStatus}`);
+                // Trigger refresh of trip data
+                if (onRefresh) {
+                  onRefresh();
+                }
+              }}
+            />
+          </div>
+          
+          {/* Status explanation */}
+          <div className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded">
+            {trip.live_status === "SCHEDULED" && "📅 Waiting for departure time"}
+            {trip.live_status === "IN_PROGRESS" && "🚛 Currently running"}
+            {trip.live_status === "COMPLETED" && "✅ Trip finished"}
+            {trip.live_status === "CANCELLED" && "❌ Trip cancelled"}
+          </div>
         </div>
 
         {/* Error Message */}
@@ -204,6 +289,89 @@ export default function TripDetail({ trip, onRefresh }) {
                   <span>Deploy vehicle first</span>
                 </p>
               )}
+
+              {/* Booking Management Controls */}
+              {trip.vehicle_id && (
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <p className="text-xs text-gray-600 font-medium mb-2">Manage Bookings</p>
+                  
+                  {/* Error/Success Messages */}
+                  {bookingError && (
+                    <p className="text-red-600 text-xs mb-2 flex items-center gap-1">
+                      <span>❌</span>
+                      <span>{bookingError}</span>
+                    </p>
+                  )}
+                  {bookingSuccess && (
+                    <p className="text-green-600 text-xs mb-2 flex items-center gap-1">
+                      <span>✅</span>
+                      <span>{bookingSuccess}</span>
+                    </p>
+                  )}
+                  
+                  <div className="flex items-center gap-2">
+                    {/* Count Input */}
+                    <div className="flex items-center border rounded-md bg-gray-50">
+                      <button
+                        onClick={() => setBookingCount(Math.max(1, bookingCount - 1))}
+                        className="px-2 py-1 text-gray-600 hover:bg-gray-200 transition-colors rounded-l-md"
+                        disabled={bookingLoading}
+                      >
+                        −
+                      </button>
+                      <input
+                        type="number"
+                        min="1"
+                        max={trip.capacity || 50}
+                        value={bookingCount}
+                        onChange={(e) => setBookingCount(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-12 text-center text-sm bg-transparent border-x py-1 focus:outline-none"
+                        disabled={bookingLoading}
+                      />
+                      <button
+                        onClick={() => setBookingCount(Math.min((trip.capacity || 50), bookingCount + 1))}
+                        className="px-2 py-1 text-gray-600 hover:bg-gray-200 transition-colors rounded-r-md"
+                        disabled={bookingLoading}
+                      >
+                        +
+                      </button>
+                    </div>
+                    
+                    {/* Add Button */}
+                    <button
+                      onClick={handleAddBookings}
+                      disabled={bookingLoading || !trip.vehicle_id || (trip.seats_booked >= trip.capacity)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${
+                        bookingLoading || !trip.vehicle_id || (trip.seats_booked >= trip.capacity)
+                          ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                          : 'bg-green-500 text-white hover:bg-green-600'
+                      }`}
+                    >
+                      {bookingLoading ? '...' : '➕ Add'}
+                    </button>
+                    
+                    {/* Reduce Button */}
+                    <button
+                      onClick={handleReduceBookings}
+                      disabled={bookingLoading || (trip.booked_count || 0) === 0}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${
+                        bookingLoading || (trip.booked_count || 0) === 0
+                          ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                          : 'bg-red-500 text-white hover:bg-red-600'
+                      }`}
+                    >
+                      {bookingLoading ? '...' : '➖ Reduce'}
+                    </button>
+                  </div>
+                  
+                  {/* Available seats hint */}
+                  {trip.capacity && (
+                    <p className="text-xs text-gray-500 mt-2">
+                      {trip.capacity - (trip.seats_booked || 0)} seats available
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -305,15 +473,23 @@ export default function TripDetail({ trip, onRefresh }) {
           <h3 className="font-semibold text-gray-700 mb-4">⚡ Actions</h3>
           <div className="flex gap-3 flex-wrap">
             <button
-              onClick={() => setShowAssign(true)}
+              onClick={() => setShowAssignVehicle(true)}
               disabled={loading || trip.live_status === "CANCELLED"}
-              className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
             >
-              ➕ Assign Vehicle
+              🚌 Assign Vehicle
             </button>
             
             <button
-              onClick={handleRemove}
+              onClick={() => setShowAssignDriver(true)}
+              disabled={loading || trip.live_status === "CANCELLED"}
+              className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              👨‍✈️ Assign Driver
+            </button>
+            
+            <button
+              onClick={() => setShowRemoveConfirm(true)}
               disabled={loading || !trip.vehicle_id || trip.live_status === "CANCELLED"}
               className="bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
             >
@@ -321,7 +497,7 @@ export default function TripDetail({ trip, onRefresh }) {
             </button>
             
             <button
-              onClick={handleCancel}
+              onClick={() => setShowCancelConfirm(true)}
               disabled={loading || trip.live_status === "CANCELLED" || trip.live_status === "COMPLETED"}
               className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
             >
@@ -344,14 +520,71 @@ export default function TripDetail({ trip, onRefresh }) {
         )}
       </div>
 
-      {/* Assign Modal */}
-      {showAssign && (
-        <AssignModal
+      {/* Assign Vehicle Modal */}
+      {showAssignVehicle && (
+        <AssignVehicleModal
           trip={trip}
-          onClose={() => setShowAssign(false)}
+          onClose={() => setShowAssignVehicle(false)}
           onRefresh={onRefresh}
         />
       )}
+
+      {/* Assign Driver Modal */}
+      {showAssignDriver && (
+        <AssignDriverModal
+          trip={trip}
+          onClose={() => setShowAssignDriver(false)}
+          onRefresh={onRefresh}
+        />
+      )}
+
+      {/* Remove Vehicle Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showRemoveConfirm}
+        onClose={() => setShowRemoveConfirm(false)}
+        onConfirm={handleRemove}
+        title="Remove Vehicle Assignment"
+        icon="🚌"
+        type="warning"
+        tripName={trip.route_name || trip.display_name}
+        bookingsAffected={bookedCount}
+        bookingPercentage={bookingPercentage}
+        consequences={[
+          "The vehicle will be unassigned from this trip",
+          "The driver assignment will also be removed",
+          bookedCount > 0 
+            ? `${bookedCount} confirmed booking(s) will remain but trip cannot operate without a vehicle`
+            : "No bookings will be affected",
+          "A trip-sheet will fail to generate until a new vehicle is assigned",
+        ]}
+        confirmText="Remove Vehicle"
+        cancelText="Keep Assignment"
+        loading={loading}
+      />
+
+      {/* Cancel Trip Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showCancelConfirm}
+        onClose={() => setShowCancelConfirm(false)}
+        onConfirm={handleCancel}
+        title="Cancel Trip"
+        icon="❌"
+        type="danger"
+        tripName={trip.route_name || trip.display_name}
+        bookingsAffected={bookedCount}
+        bookingPercentage={bookingPercentage}
+        consequences={[
+          "This trip will be permanently cancelled",
+          bookedCount > 0 
+            ? `All ${bookedCount} confirmed booking(s) will be cancelled automatically`
+            : "No bookings to cancel",
+          "Affected employees will need to be notified",
+          "This action cannot be undone",
+        ]}
+        confirmText="Cancel Trip"
+        cancelText="Keep Trip Active"
+        loading={loading}
+      />
     </div>
   );
 }

@@ -1,4 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
+import StatusControlPanel from "./StatusControlPanel";
+import DriverDropdown from "./DriverDropdown";
+import VehicleDropdown from "./VehicleDropdown";
 
 export default function Header({ onRefresh, summary }) {
   const location = useLocation();
@@ -41,14 +44,20 @@ export default function Header({ onRefresh, summary }) {
             </Link>
           </nav>
 
-          {/* Refresh Button */}
-          <button
-            onClick={onRefresh}
-            className="bg-blue-800 hover:bg-blue-900 px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
-          >
-            <span className="text-lg">🔄</span>
-            Refresh
-          </button>
+          {/* Resource Dropdowns + Action Buttons */}
+          <div className="flex items-center gap-3">
+            <DriverDropdown />
+            <VehicleDropdown />
+            <div className="w-px h-8 bg-blue-400 opacity-50"></div>
+            <StatusControlPanel />
+            <button
+              onClick={onRefresh}
+              className="bg-blue-800 hover:bg-blue-900 px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              <span className="text-lg">🔄</span>
+              Refresh
+            </button>
+          </div>
         </div>
 
         {/* Enhanced Summary Stats with Missing Features */}

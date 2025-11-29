@@ -31,26 +31,51 @@ async def suggestion_provider(state: Dict[str, Any]) -> Dict[str, Any]:
     # Build suggestions based on trip state
     suggestions = []
     
-    # Vehicle management
-    if trip_details.get("vehicle_id"):
+    # Vehicle management - Enhanced logic
+    has_vehicle = trip_details.get("vehicle_id")
+    has_driver = trip_details.get("driver_id")
+    
+    if has_vehicle:
+        # Trip has vehicle → offer to remove it
         suggestions.append({
             "action": "remove_vehicle",
             "label": "🚫 Remove Vehicle",
             "description": f"Remove {trip_details.get('registration_number', 'vehicle')} from this trip"
         })
+    elif has_driver:
+        # ✅ FIX: Trip has driver but no vehicle → hide "assign vehicle"
+        # Don't offer vehicle assignment if driver is already assigned
+        # This prevents the "Trip already has deployment" error
+        logger.info(f"Trip has driver but no vehicle - not offering vehicle assignment to prevent deployment conflict")
     else:
+        # No vehicle and no driver → offer vehicle assignment
         suggestions.append({
             "action": "assign_vehicle",
             "label": "🚗 Assign Vehicle",
             "description": "Assign a vehicle and driver to deploy this trip"
         })
     
-    # Driver management
-    if trip_details.get("driver_id"):
+    # Driver management - Enhanced for separate driver assignment
+    if has_driver:
         suggestions.append({
             "action": "change_driver",
             "label": "👤 Change Driver",
             "description": f"Change driver from {trip_details.get('driver_name', 'current driver')}"
+        })
+    else:
+        # No driver assigned - offer driver assignment
+        suggestions.append({
+            "action": "assign_driver",
+            "label": "👤 Assign Driver",
+            "description": "Assign a driver to this trip"
+        })
+    
+    # Vehicle and driver combo (if neither assigned)
+    if not has_vehicle and not has_driver:
+        suggestions.append({
+            "action": "assign_vehicle",
+            "label": "🚗 Assign Vehicle & Driver",
+            "description": "Assign both vehicle and driver together"
         })
     
     # Booking management

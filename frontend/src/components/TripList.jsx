@@ -1,3 +1,5 @@
+import TripStatusBadge from './TripStatusBadge';
+
 export default function TripList({ trips, onSelect, selected }) {
   if (!trips || trips.length === 0) {
     return (
@@ -31,7 +33,11 @@ export default function TripList({ trips, onSelect, selected }) {
           return (
             <div
               key={trip.trip_id}
-              onClick={() => onSelect(trip)}
+              onClick={() => {
+                console.log("🚀 [TripList] Trip clicked:", trip.trip_id, trip.route_name);
+                console.log("🚀 [TripList] Calling onSelect with trip:", trip);
+                onSelect(trip);
+              }}
               className={`p-4 cursor-pointer transition-all duration-200 ${
                 isSelected 
                   ? "bg-blue-50 border-l-4 border-l-blue-600 shadow-sm" 
@@ -48,15 +54,13 @@ export default function TripList({ trips, onSelect, selected }) {
                     ID Trip #{trip.trip_id}
                   </p>
                 </div>
-                <span className={`text-xs px-2.5 py-1 rounded-full font-medium whitespace-nowrap ml-2 ${
-                  trip.live_status === "COMPLETED" ? "bg-green-100 text-green-700 border border-green-200" :
-                  trip.live_status === "IN_PROGRESS" ? "bg-blue-100 text-blue-700 border border-blue-200" :
-                  trip.live_status === "SCHEDULED" ? "bg-yellow-100 text-yellow-700 border border-yellow-200" :
-                  trip.live_status === "CANCELLED" ? "bg-red-100 text-red-700 border border-red-200" :
-                  "bg-gray-100 text-gray-700 border border-gray-200"
-                }`}>
-                  {trip.live_status}
-                </span>
+                <TripStatusBadge 
+                  trip={trip} 
+                  onStatusChange={(tripId, newStatus) => {
+                    console.log(`🔄 Status changed: Trip ${tripId} → ${newStatus}`);
+                    // Trigger refresh if needed
+                  }}
+                />
               </div>
               
               {/* Trip Details */}

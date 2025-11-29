@@ -31,7 +31,8 @@ TRIP_WIZARD_STEPS = [
 
 ROUTE_WIZARD_STEPS = [
     WizardStep("route_name", "What should we call this route?", "route_name"),
-    WizardStep("select_path", "Which path should this route follow?", "path_id"),
+    WizardStep("select_path", "Which path should this route follow? (Enter path name or ID)", "path_id"),
+    WizardStep("departure_time", "What time should this route depart? (e.g., 08:00, 14:30)", "departure_time"),
     WizardStep("direction", "What direction? (UP/DOWN)", "direction"),
     WizardStep("confirm_route", "Review and confirm", "confirmed"),
 ]
@@ -44,8 +45,9 @@ PATH_WIZARD_STEPS = [
 
 STOP_WIZARD_STEPS = [
     WizardStep("stop_name", "What should we call this stop?", "stop_name"),
-    WizardStep("latitude", "Latitude? (optional)", "latitude"),
-    WizardStep("longitude", "Longitude? (optional)", "longitude"),
+    # Latitude and longitude are optional - skip for now since maps aren't integrated
+    # WizardStep("latitude", "Latitude? (optional)", "latitude"),
+    # WizardStep("longitude", "Longitude? (optional)", "longitude"),
     WizardStep("confirm_stop", "Review and confirm", "confirmed"),
 ]
 
@@ -66,6 +68,9 @@ async def trip_creation_wizard(state: Dict[str, Any]) -> Dict[str, Any]:
     current_step_idx = state.get("wizard_step", 0)
     
     logger.info(f"Wizard: type={wizard_type}, step={current_step_idx}, data={list(wizard_data.keys())}")
+    logger.info(f"[DEBUG] State parsed_params: {state.get('parsed_params', {})}")
+    logger.info(f"[DEBUG] State parameters: {state.get('parameters', {})}")
+    logger.info(f"[DEBUG] State extracted_info: {state.get('extracted_info', {})}")
     
     # Determine which wizard flow
     if wizard_type in ["create_trip_from_scratch", "start_trip_wizard"]:
@@ -87,6 +92,14 @@ async def trip_creation_wizard(state: Dict[str, Any]) -> Dict[str, Any]:
         state["next_node"] = "report_result"
         return state
     
+    # FIX 1: Map LLM parsed_params to extracted_info for wizard pre-fill
+    # The LLM stores parameters in "parsed_params", not "parameters"
+    if current_step_idx == 0:
+        parsed_params = state.get("parsed_params", {})
+        if parsed_params and not state.get("extracted_info"):
+            logger.info(f"[FIX] Mapping LLM parsed_params to extracted_info: {parsed_params}")
+            state["extracted_info"] = parsed_params.copy()
+    
     # Initialize wizard if first step
     if current_step_idx == 0 and not wizard_data:
         logger.info(f"Initializing {wizard_name} wizard")
@@ -98,6 +111,27 @@ async def trip_creation_wizard(state: Dict[str, Any]) -> Dict[str, Any]:
         if extracted_info:
             wizard_data.update(extracted_info)
             logger.info(f"Pre-filled wizard with: {extracted_info}")
+    
+    # FIX 2: Skip wizard steps that already have data
+    while current_step_idx < len(steps):
+        current_step = steps[current_step_idx]
+        field = current_step.field
+        
+        # Check if this field already has data
+        has_data = field in wizard_data and wizard_data[field]
+        
+        # Special case: stop_ids can be satisfied by stop_names
+        if not has_data and field == "stop_ids" and wizard_data.get("stop_names"):
+            wizard_data["stop_ids"] = wizard_data["stop_names"]  # Copy stop_names to stop_ids
+            has_data = True
+            logger.info(f"[FIX] Mapped stop_names to stop_ids: {wizard_data['stop_ids']}")
+        
+        if has_data:
+            logger.info(f"[FIX] Skipping step {current_step_idx} ({field}) - already filled with: {wizard_data[field]}")
+            current_step_idx += 1
+            state["wizard_step"] = current_step_idx
+        else:
+            break
     
     # Check if wizard completed
     if current_step_idx >= len(steps):
@@ -123,12 +157,16 @@ async def trip_creation_wizard(state: Dict[str, Any]) -> Dict[str, Any]:
     message = f"**{wizard_name}** (Step {current_step_idx + 1}/{len(steps)})\n\n"
     message += f"**{current_step.question}**"
     
-    # Show collected data so far
+    # Show collected data so far (only non-None, non-private values)
     if wizard_data:
-        message += "\n\n*Collected so far:*"
-        for key, value in wizard_data.items():
-            if not key.startswith("_"):
-                message += f"\n• {key}: {value}"
+        collected_items = [(k, v) for k, v in wizard_data.items() 
+                          if not k.startswith("_") and v is not None and v != ""]
+        if collected_items:
+            message += "\n\n*Collected so far:*"
+            for key, value in collected_items:
+                # Use friendly display names
+                display_name = key.replace("_", " ").title()
+                message += f"\n• {display_name}: {value}"
     
     # Show confirmation summary if final step
     if current_step.step_id.startswith("confirm_"):
@@ -143,7 +181,9 @@ async def trip_creation_wizard(state: Dict[str, Any]) -> Dict[str, Any]:
     state["wizard_steps_total"] = len(steps)
     state["awaiting_wizard_input"] = True
     state["status"] = "wizard_active"
-    state["next_node"] = "collect_user_input"
+    # IMPORTANT: Go to report_result to return response to user
+    # The next user message will continue the wizard via parse_intent detecting wizard_active
+    state["next_node"] = "report_result"
     
     logger.info(f"Wizard step {current_step_idx}: asking for {current_step.field}")
     
@@ -159,40 +199,65 @@ async def _execute_wizard_creation(state: Dict[str, Any], wizard_type: str, wiza
         create_stop,
         create_path,
         create_route,
-        create_trip
     )
     
     logger.info(f"Executing {wizard_type} with data: {wizard_data}")
     
+    # Get user_id from state (default to 1 for agent operations)
+    user_id = state.get("user_id", 1)
+    
     try:
         if wizard_type in ["create_trip_from_scratch", "start_trip_wizard"]:
-            # Create trip
-            result = await create_trip(
-                route_id=int(wizard_data.get("route_id")),
-                trip_date=wizard_data.get("trip_date"),
-                scheduled_time=wizard_data.get("scheduled_time"),
-                vehicle_id=wizard_data.get("vehicle_id"),
-                driver_id=wizard_data.get("driver_id")
-            )
-            state["message"] = f"✅ Trip created successfully!\n\n**Trip ID**: {result.get('trip_id')}"
-            state["trip_id"] = result.get("trip_id")
+            # Trip creation not yet implemented via wizard
+            state["message"] = "❌ Trip creation via wizard is not yet implemented. Please use the dashboard to create trips."
+            state["status"] = "not_implemented"
+            state["wizard_active"] = False
+            return state
             
         elif wizard_type in ["create_route", "create_new_route_help"]:
-            # Create route
+            # Create route with shift_time and direction
+            direction = wizard_data.get("direction", "up")
+            if direction:
+                direction = direction.lower()  # Database expects lowercase
+            
             result = await create_route(
                 route_name=wizard_data.get("route_name"),
                 path_id=int(wizard_data.get("path_id")),
-                direction=wizard_data.get("direction", "UP")
+                user_id=user_id,
+                shift_time=wizard_data.get("departure_time"),
+                direction=direction
             )
-            state["message"] = f"✅ Route created successfully!\n\n**Route**: {wizard_data.get('route_name')}"
+            
+            # Build success message
+            msg_parts = [f"✅ Route created successfully!", "", f"**Route**: {wizard_data.get('route_name')}"]
+            if wizard_data.get("departure_time"):
+                msg_parts.append(f"**Departure Time**: {wizard_data.get('departure_time')}")
+            msg_parts.append(f"**Direction**: {direction.upper() if direction else 'UP'}")
+            
+            # Include trip info if created
+            if result.get("trip"):
+                trip = result["trip"]
+                msg_parts.append("")
+                msg_parts.append(f"📅 **Daily trip created** for today (Trip ID: {trip.get('trip_id')})")
+                msg_parts.append("You can now see it on the Dashboard and assign vehicles/drivers.")
+            
+            state["message"] = "\n".join(msg_parts)
             
         elif wizard_type == "create_path":
-            # Create path
+            # Create path - stop_ids can be names or IDs, service handles by name
+            stop_input = wizard_data.get("stop_ids", [])
+            # Parse stop_ids: could be comma-separated string or list
+            if isinstance(stop_input, str):
+                stop_names = [s.strip() for s in stop_input.split(",") if s.strip()]
+            else:
+                stop_names = stop_input
+                
             result = await create_path(
                 path_name=wizard_data.get("path_name"),
-                stop_ids=wizard_data.get("stop_ids", [])
+                stop_names=stop_names,
+                user_id=user_id
             )
-            state["message"] = f"✅ Path created successfully!\n\n**Path**: {wizard_data.get('path_name')}"
+            state["message"] = f"✅ Path created successfully!\n\n**Path**: {wizard_data.get('path_name')}\n**Stops**: {', '.join(stop_names)}"
             
         elif wizard_type == "create_stop":
             # Create stop

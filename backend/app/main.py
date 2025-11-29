@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 load_dotenv()
 
 # Import REST API routers
-from app.api import routes, actions, context, audit, health, agent, agent_image
+from app.api import routes, actions, context, audit, health, agent, agent_image, status
 
 # Import debug router (from Day 3)
 from app.routers import debug
@@ -36,6 +36,12 @@ async def lifespan(app: FastAPI):
     try:
         await init_db_pool(min_size=2, max_size=10)
         print("✅ Database pool initialized")
+        
+        # Start automatic trip status updater
+        from app.core.status_updater import start_status_updater
+        await start_status_updater()
+        print("✅ Automatic trip status updater started")
+        
     except Exception as e:
         print(f"⚠️  Warning: Could not initialize database pool: {e}")
         print("   Some endpoints may not work until DATABASE_URL is configured.")
@@ -44,6 +50,12 @@ async def lifespan(app: FastAPI):
     
     # Shutdown: Close database connection pool
     print("🛑 Shutting down Movi backend...")
+    
+    # Stop status updater
+    from app.core.status_updater import stop_status_updater
+    stop_status_updater()
+    print("✅ Trip status updater stopped")
+    
     await close_pool()
     print("✅ Database pool closed")
 
@@ -56,9 +68,18 @@ app = FastAPI(
 )
 
 # CORS middleware for frontend integration
+# Get allowed origins from environment or use defaults
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "").split(",") if os.getenv("CORS_ORIGINS") else []
+DEFAULT_ORIGINS = [
+    "http://localhost:5173",  # Vite dev server
+    "http://localhost:3000",  # Common dev port
+]
+# Add any configured production origins
+allowed_origins = DEFAULT_ORIGINS + [origin.strip() for origin in CORS_ORIGINS if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # Vite and common dev ports
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -73,6 +94,11 @@ app.include_router(actions.router, prefix="/api/actions", tags=["Trip Actions"])
 app.include_router(context.router, prefix="/api/context", tags=["UI Context"])
 app.include_router(audit.router, prefix="/api/audit", tags=["Audit Logs"])
 app.include_router(health.router, prefix="/api/health", tags=["Health & Status"])
+app.include_router(status.router, prefix="/api/status", tags=["Trip Status Management"])
+
+# Include resources router (Drivers & Vehicles with dynamic availability)
+from app.api import resources
+app.include_router(resources.router, prefix="/api", tags=["Resources - Drivers & Vehicles"])
 
 # Include agent router (Day 7: LangGraph)
 app.include_router(agent.router, prefix="/api/agent", tags=["AI Agent"])
@@ -96,10 +122,11 @@ async def root():
         "api_docs": "/docs",
         "endpoints": {
             "routes": "/api/routes",
-            "actions": "/api/actions",
+            "actions": "/api/actions", 
             "context": "/api/context",
             "audit": "/api/audit",
             "health": "/api/health",
+            "status": "/api/status",
             "agent": "/api/agent",
             "debug": "/api/debug"
         }
@@ -119,30 +146,4 @@ async def health():
         "timestamp": datetime.utcnow().isoformat(),
         "version": "0.1.0",
     }
-
-
-@app.get("/")
-async def root():
-    """
-    Root endpoint.
-    Provides basic API information and available endpoints.
-    """
-    return {
-        "message": "Welcome to Movi API",
-        "docs": "/docs",
-        "health": "/health",
-        "description": "Multimodal Transport Agent for MoveInSync Shuttle",
-    }
-
-
-# TODO: Include routers once implemented
-# app.include_router(stops.router, prefix="/api/stops", tags=["stops"])
-# app.include_router(paths.router, prefix="/api/paths", tags=["paths"])
-# app.include_router(routes.router, prefix="/api/routes", tags=["routes"])
-# app.include_router(trips.router, prefix="/api/trips", tags=["trips"])
-# app.include_router(vehicles.router, prefix="/api/vehicles", tags=["vehicles"])
-# app.include_router(drivers.router, prefix="/api/drivers", tags=["drivers"])
-
-# TODO: Add LangGraph agent endpoints (Day 3+)
-# app.include_router(agent.router, prefix="/api/agent", tags=["agent"])
 

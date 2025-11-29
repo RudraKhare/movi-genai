@@ -24,12 +24,19 @@ async def vehicle_selection_provider(state: Dict[str, Any]) -> Dict[str, Any]:
     
     logger.info(f"Fetching vehicle options for action: {action}, trip: {trip_id}")
     
-    # Fetch unassigned vehicles
+    # Fetch available vehicles for this specific trip (time-aware)
     try:
-        from langgraph.tools import tool_get_unassigned_vehicles
-        vehicles_result = await tool_get_unassigned_vehicles()
-        
-        logger.info(f"Vehicles result: {vehicles_result}")
+        # Try time-aware query first
+        try:
+            from langgraph.tools import tool_get_available_vehicles_for_trip
+            vehicles_result = await tool_get_available_vehicles_for_trip(trip_id)
+            logger.info(f"Time-aware vehicles result: {vehicles_result}")
+        except ImportError:
+            # Fallback to unassigned vehicles if new tool not available
+            logger.warning("Time-aware tool not available, using unassigned vehicles")
+            from langgraph.tools import tool_get_unassigned_vehicles
+            vehicles_result = await tool_get_unassigned_vehicles()
+            logger.info(f"Fallback vehicles result: {vehicles_result}")
         
         if not vehicles_result.get("ok"):
             state["message"] = "❌ Unable to fetch available vehicles"
@@ -90,10 +97,16 @@ async def vehicle_selection_provider(state: Dict[str, Any]) -> Dict[str, Any]:
             })
         
         state["options"] = options
+        state["suggestions"] = options  # ✅ FIX: Set suggestions for final_output
         state["awaiting_selection"] = True
         state["selection_type"] = "vehicle"
         state["status"] = "options_provided"
         state["next_node"] = "report_result"
+        
+        # ✅ FIX: Set final_output suggestions
+        if "final_output" not in state:
+            state["final_output"] = {}
+        state["final_output"]["suggestions"] = options
         
         logger.info(f"Provided {len(options)} vehicle options")
         

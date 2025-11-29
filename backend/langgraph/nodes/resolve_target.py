@@ -57,6 +57,20 @@ async def resolve_target(state: Dict) -> Dict:
         "create_trip_from_scratch", # Start trip wizard
         "start_trip_wizard",        # Alias for create_trip_from_scratch
         "cancel_wizard",            # Cancel wizard
+        # Listing actions (no target needed)
+        "list_all_paths", "get_all_paths",
+        "list_all_routes", "get_all_routes",
+        "list_all_vehicles", "get_vehicles",
+        "list_all_drivers", "get_drivers",
+        "get_available_drivers",
+        # Dashboard actions (no target needed)
+        "get_trips_needing_attention", "get_today_summary", "get_recent_changes",
+        "get_high_demand_offices", "get_most_used_vehicles",
+        "detect_overbooking", "predict_problem_trips",
+        # Fleet management actions (no trip target needed)
+        "add_vehicle", "add_driver",
+        # System actions
+        "explain_decision", "simulate_action",
     ]
     if action in no_target_actions:
         logger.info(f"[SKIP] Action '{action}' doesn't need target resolution")
@@ -67,10 +81,18 @@ async def resolve_target(state: Dict) -> Dict:
     
     # === DEFINE ACTION CATEGORIES ===
     trip_actions = [
-        "cancel_trip", "remove_vehicle", "assign_vehicle", "update_trip_time",
-        "get_trip_status", "get_trip_details",
+        "cancel_trip", "remove_vehicle", "assign_vehicle", "assign_driver", "update_trip_time",
+        "get_trip_status", "get_trip_details", "get_trip_stops",
         # Phase 3: Additional trip actions
-        "get_trip_bookings", "change_driver", "duplicate_trip", "create_followup_trip"
+        "get_trip_bookings", "get_booking_count", "change_driver", "duplicate_trip", "create_followup_trip",
+        # Booking management
+        "list_passengers", "cancel_all_bookings",
+        # Trip scheduling actions
+        "delay_trip", "reschedule_trip", "update_trip_status", "remove_driver",
+        # Vehicle recommendations
+        "recommend_vehicle_for_trip", "suggest_alternate_vehicle",
+        # Compound actions
+        "assign_vehicle_and_driver"
     ]
     path_actions = [
         "list_stops_for_path", "list_routes_using_path"
@@ -186,12 +208,45 @@ async def resolve_target(state: Dict) -> Dict:
     if action not in trip_actions:
         logger.warning(f"[UNKNOWN] Action '{action}' doesn't match any category")
         return state
+
+    # === PRIORITY 0: Structured Command (Skip ALL other resolution) ===
+    # ✅ FIX: Check for structured command first, before any other processing
+    if state.get("source") == "structured_command" or state.get("from_selection_ui"):
+        if state.get("trip_id"):
+            logger.info(f"[STRUCTURED] Using structured command trip_id: {state['trip_id']} - skipping all other resolution")
+            
+            # Fetch trip details from database for completeness
+            from app.core.supabase_client import get_conn
+            pool = await get_conn()
+            async with pool.acquire() as conn:
+                trip_row = await conn.fetchrow("""
+                    SELECT t.trip_id, t.display_name, t.trip_date, t.live_status
+                    FROM daily_trips t
+                    WHERE t.trip_id = $1
+                """, state["trip_id"])
+            
+            if trip_row:
+                state["trip_label"] = trip_row["display_name"]
+                state["trip_date"] = str(trip_row.get("trip_date", ""))
+                state["live_status"] = trip_row.get("live_status", "")
+                state["resolve_result"] = "found"
+                logger.info(f"✅ [STRUCTURED] Resolved to: {trip_row['display_name']} (ID: {trip_row['trip_id']})")
+                return state
+            else:
+                logger.warning(f"[STRUCTURED] Trip ID {state['trip_id']} not found in database")
+                state["status"] = "not_found"
+                state["error"] = "trip_not_found"
+                state["resolve_result"] = "none"
+                state["message"] = f"Trip ID {state['trip_id']} not found in system."
+                return state
     
-    # === PRIORITY 1: OCR selectedTripId ===
-    # If selectedTripId is provided from OCR, use it directly
+    # === PRIORITY 1: OCR selectedTripId (only if from_image=True) ===
+    # If selectedTripId is provided from OCR AND this is an image-based request, use it directly
     selected_trip_id = state.get("selectedTripId")
-    if selected_trip_id:
-        logger.info(f"[BYPASS] Using OCR-resolved trip_id: {selected_trip_id}")
+    from_image = state.get("from_image", False)
+    
+    if selected_trip_id and from_image:
+        logger.info(f"[OCR] Using OCR-resolved trip_id from image: {selected_trip_id}")
         
         # Fetch trip details from database
         from app.core.supabase_client import get_conn
@@ -209,15 +264,17 @@ async def resolve_target(state: Dict) -> Dict:
             state["trip_date"] = str(trip_row.get("trip_date", ""))
             state["live_status"] = trip_row.get("live_status", "")
             state["resolve_result"] = "found"  # Phase 3: Mark as successfully found
-            logger.info(f"[BYPASS] Resolved to: {trip_row['display_name']} (ID: {trip_row['trip_id']})")
+            logger.info(f"✅ [OCR] Resolved to: {trip_row['display_name']} (ID: {trip_row['trip_id']})")
             return state
         else:
-            logger.warning(f"[BYPASS] Trip ID {selected_trip_id} not found in database")
+            logger.warning(f"[OCR] Trip ID {selected_trip_id} not found in database")
             state["status"] = "not_found"
             state["error"] = "trip_not_found"
             state["resolve_result"] = "none"  # Phase 3: Mark as not found
             state["message"] = f"Trip ID {selected_trip_id} not found in system."
             return state
+    elif selected_trip_id and not from_image:
+        logger.info(f"[OCR] Ignoring stale OCR trip_id {selected_trip_id} (not from current image)")
     
     # === PRIORITY 2: LLM numeric trip_id ===
     llm_trip_id = state.get("target_trip_id")
@@ -248,7 +305,7 @@ async def resolve_target(state: Dict) -> Dict:
                           f"LLM hallucinated this ID. Falling back to label-based search.")
             # Don't return error, just fall through to label-based matching
     
-    # === PRIORITY 2.5: LLM target_time (time-based search) ===
+    # === PRIORITY 3: LLM target_time (time-based search) ===
     llm_target_time = state.get("target_time")
     
     if llm_target_time:
@@ -296,7 +353,7 @@ async def resolve_target(state: Dict) -> Dict:
             logger.warning(f"❌ [LLM_TIME] No trips found at time: {llm_target_time}")
             # Fall through to label-based search
     
-    # === PRIORITY 3: LLM target_label (PRIMARY PATH) ===
+    # === PRIORITY 5: LLM target_label (PRIMARY PATH) ===
     llm_target_label = state.get("target_label")
     
     if llm_target_label:
@@ -323,19 +380,51 @@ async def resolve_target(state: Dict) -> Dict:
                 state["needs_clarification"] = True
                 state["resolve_result"] = "none"  # Phase 3: Mark as not found
                 state["message"] = f"I'm not sure which trip you mean by '{llm_target_label}'. Could you please clarify?"
+                logger.warning(f"Could not resolve trip from LLM label: {llm_target_label}")
+                return state
             else:
+                # High confidence LLM result but not found - fallback to regex
+                logger.info(f"[LLM_LABEL] High confidence ({confidence}) but not found, falling back...")
                 state["status"] = "not_found"
                 state["error"] = "trip_not_found"
                 state["resolve_result"] = "none"  # Phase 3: Mark as not found
                 state["message"] = f"I couldn't find a trip matching '{llm_target_label}'. Please check the trip name and try again."
-            
-            logger.warning(f"Could not resolve trip from LLM label: {llm_target_label}")
-            return state
+                logger.warning(f"Could not resolve trip from LLM label: {llm_target_label}")
+                return state
     
-    # === PRIORITY 4: Regex fallback (only if LLM parsing is disabled) ===
-    # If we reach here, LLM didn't provide a target_label
-    # This should only happen when USE_LLM_PARSE=false
-    logger.info("⚠️  No LLM target_label provided, falling back to regex extraction")
+    # === PRIORITY 5.5: Context-aware resolution using selectedTripId ===
+    # If LLM didn't provide specific target but we have UI context, use it for vague requests
+    ui_context = state.get("context", {})
+    context_trip_id = ui_context.get("selectedTripId") if ui_context else None
+    
+    if context_trip_id and not llm_target_label:
+        logger.info(f"🎯 [CONTEXT] Using context selectedTripId for vague request: {context_trip_id}")
+        
+        from app.core.supabase_client import get_conn
+        pool = await get_conn()
+        async with pool.acquire() as conn:
+            trip_row = await conn.fetchrow("""
+                SELECT t.trip_id, t.display_name, t.trip_date, t.live_status
+                FROM daily_trips t
+                WHERE t.trip_id = $1
+            """, context_trip_id)
+        
+        if trip_row:
+            state["trip_id"] = trip_row["trip_id"]
+            state["trip_label"] = trip_row["display_name"]
+            state["trip_date"] = str(trip_row.get("trip_date", ""))
+            state["live_status"] = trip_row.get("live_status", "")
+            state["resolve_result"] = "found"
+            logger.info(f"✅ [CONTEXT] Resolved to: {trip_row['display_name']} (ID: {trip_row['trip_id']})")
+            return state
+        else:
+            logger.warning(f"[CONTEXT] Trip ID {context_trip_id} not found in database")
+            # Fall through to regex as last resort
+    
+    # === PRIORITY 6: Regex fallback (LAST RESORT) ===
+    # If we reach here, LLM didn't provide target_label AND no context available
+    # This should be rare with proper LLM integration
+    logger.warning("🚨 [REGEX_FALLBACK] No LLM target_label or context, using regex as last resort")
     
     target_text = state.get("text", "")
     import re
@@ -360,8 +449,11 @@ async def resolve_target(state: Dict) -> Dict:
         if trip_match:
             trip_label = trip_match.group(1).strip()
             logger.info(f"[REGEX] Extracted from 'trip/to/assign' pattern: '{trip_label}'")
+    else:
+        # No pattern matched - use the entire text as fallback
+        logger.warning(f"[REGEX] No pattern matched, using full text: '{target_text}'")
     
-    # Try to find trip
+    # Try to find trip using regex-extracted label
     trip = await tool_identify_trip_from_label(trip_label)
     
     if trip:
@@ -370,12 +462,71 @@ async def resolve_target(state: Dict) -> Dict:
         state["trip_date"] = str(trip.get("trip_date", ""))
         state["live_status"] = trip.get("live_status", "")
         state["resolve_result"] = "found"  # Phase 3: Mark as successfully found
-        logger.info(f"[REGEX] Resolved to trip_id: {trip['trip_id']} ({trip['display_name']})")
+        logger.info(f"✅ [REGEX] Resolved to trip_id: {trip['trip_id']} ({trip['display_name']})")
     else:
         state["status"] = "not_found"
         state["error"] = "trip_not_found"
         state["resolve_result"] = "none"  # Phase 3: Mark as not found
         state["message"] = f"I couldn't find a trip matching '{trip_label}'. Please check the trip name and try again."
-        logger.warning(f"Could not resolve trip from: {target_text}")
+        logger.warning(f"[REGEX] Could not resolve trip from: {target_text}")
+    
+    # === DRIVER RESOLUTION FOR ASSIGN_DRIVER ACTION ===
+    if state.get("action") == "assign_driver" and not state.get("error"):
+        await resolve_driver_for_assignment(state)
     
     return state
+
+
+async def resolve_driver_for_assignment(state: Dict) -> None:
+    """
+    Resolve driver for assign_driver action.
+    
+    This function modifies the state in place.
+    """
+    from langgraph.tools import tool_find_driver_by_name
+    
+    # Get driver information from various sources
+    entity_name = state.get("entityName")  # From LLM parsing
+    entity_id = state.get("selectedEntityId")  # From previous resolution
+    parsed_params = state.get("parsed_params", {})
+    driver_name = parsed_params.get("driver_name") or entity_name
+    driver_id = parsed_params.get("driver_id") or entity_id
+    
+    logger.info(f"[DRIVER] Resolving driver: name='{driver_name}', id={driver_id}, entityName='{entity_name}'")
+    
+    # Priority 1: Use driver_id if provided
+    if driver_id:
+        logger.info(f"[DRIVER] Using provided driver_id: {driver_id}")
+        state["selectedEntityId"] = driver_id
+        state["resolution_success"] = True
+        return
+    
+    # Priority 2: Lookup driver by name
+    if driver_name:
+        logger.info(f"[DRIVER] Looking up driver by name: '{driver_name}'")
+        try:
+            result = await tool_find_driver_by_name(driver_name)
+            
+            if result and result.get("success") and result.get("driver"):
+                driver = result["driver"]
+                state["selectedEntityId"] = driver["id"]
+                state["entityName"] = driver["name"]
+                state["resolution_success"] = True
+                logger.info(f"✅ [DRIVER] Found driver: {driver['name']} (ID: {driver['id']})")
+            else:
+                state["error"] = "driver_not_found"
+                state["resolution_success"] = False
+                state["message"] = f"I couldn't find a driver named '{driver_name}'. Please check the name and try again."
+                logger.warning(f"[DRIVER] Could not find driver: '{driver_name}'")
+        except Exception as e:
+            logger.error(f"[DRIVER] Error looking up driver: {str(e)}")
+            state["error"] = "driver_lookup_failed"
+            state["resolution_success"] = False
+            state["message"] = f"Error looking up driver '{driver_name}': {str(e)}"
+        return
+    
+    # No driver information provided
+    state["error"] = "missing_driver"
+    state["resolution_success"] = False
+    state["message"] = "I can assign a driver, but which driver should I assign? Please provide the driver's name."
+    logger.warning("[DRIVER] No driver name or ID provided for assign_driver action")

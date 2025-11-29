@@ -18,6 +18,30 @@ async def check_schema():
         for col in columns:
             print(f'{col["column_name"]}: {col["data_type"]}')
         
+        # Check vehicles columns
+        columns = await conn.fetch("""
+            SELECT column_name, data_type 
+            FROM information_schema.columns 
+            WHERE table_name = 'vehicles'
+            ORDER BY ordinal_position
+        """)
+        
+        print('\n=== vehicles columns ===')
+        for col in columns:
+            print(f'{col["column_name"]}: {col["data_type"]}')
+        
+        # Check drivers columns
+        drivers = await conn.fetch("""
+            SELECT column_name, data_type 
+            FROM information_schema.columns 
+            WHERE table_name = 'drivers'
+            ORDER BY ordinal_position
+        """)
+        
+        print('\n=== drivers columns ===')
+        for col in drivers:
+            print(f'{col["column_name"]}: {col["data_type"]}')
+        
         # Check if routes table exists
         routes = await conn.fetch("""
             SELECT column_name, data_type 

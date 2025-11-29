@@ -6,6 +6,7 @@ export default function PathCreator({ stops, paths, onRefresh }) {
   const [selectedStops, setSelectedStops] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [expandedPath, setExpandedPath] = useState(null);
 
   const addStop = (stopId) => {
     if (!stopId || stopId === "placeholder") return;
@@ -17,7 +18,7 @@ export default function PathCreator({ stops, paths, onRefresh }) {
   const removeStop = (stopId) => {
     setSelectedStops(selectedStops.filter((id) => id !== stopId));
   };
-
+  
   const moveUp = (index) => {
     if (index === 0) return;
     const reordered = [...selectedStops];
@@ -65,46 +66,127 @@ export default function PathCreator({ stops, paths, onRefresh }) {
   };
 
   return (
-    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center gap-2 mb-3 pb-3 border-b">
-        <span className="text-2xl">🛣️</span>
-        <div>
-          <h2 className="font-semibold text-lg text-gray-800">Paths</h2>
-          <p className="text-xs text-gray-500">{paths.length} sequences</p>
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-[600px]">
+      {/* Header - Orange/Amber */}
+      <div className="bg-amber-500 text-white px-5 py-4 rounded-t-xl">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">🛣️</span>
+          <div>
+            <h2 className="font-bold text-xl">Paths</h2>
+            <p className="text-sm text-amber-100">{paths.length} sequences</p>
+          </div>
         </div>
       </div>
 
-      {/* Existing Paths List */}
-      <div className="mb-3 max-h-32 overflow-y-auto">
+      {/* Existing Paths List - Scrollable */}
+      <div className="flex-1 overflow-y-auto px-4 py-3 border-b border-gray-100">
         {paths.length === 0 ? (
-          <div className="text-center py-4 text-gray-400">
-            <p className="text-xs">No paths yet</p>
+          <div className="text-center py-8 text-gray-400">
+            <span className="text-4xl block mb-3">🛣️</span>
+            <p className="text-sm">No paths yet</p>
+            <p className="text-xs mt-1">Create your first path below</p>
           </div>
         ) : (
-          <div className="space-y-1">
-            {paths.map((path) => (
-              <div
-                key={path.path_id}
-                className="border-b border-gray-100 py-2 hover:bg-gray-50"
-              >
-                <p className="text-sm font-medium text-gray-800">{path.path_name}</p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {path.stop_count || 0} stops
-                </p>
-              </div>
-            ))}
+          <div className="space-y-2">
+            {paths.map((path) => {
+              const pathStops = path.stops || [];
+              const startPoint = pathStops[0]?.stop_name || "N/A";
+              const endPoint = pathStops[pathStops.length - 1]?.stop_name || "N/A";
+              const isExpanded = expandedPath === path.path_id;
+              
+              return (
+                <div
+                  key={path.path_id}
+                  className={`border rounded-lg overflow-hidden transition-all ${
+                    isExpanded ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-white'
+                  }`}
+                >
+                  {/* Clickable Header */}
+                  <div 
+                    className="flex items-center justify-between p-3 cursor-pointer hover:bg-amber-50 transition-colors"
+                    onClick={() => setExpandedPath(isExpanded ? null : path.path_id)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-amber-500 text-white rounded-lg flex items-center justify-center text-sm font-bold">
+                        P{path.path_id}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-800">{path.path_name}</p>
+                        <p className="text-xs text-gray-500">
+                          {startPoint} → {endPoint} • {pathStops.length} stops
+                        </p>
+                      </div>
+                    </div>
+                    <span className={`text-amber-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+                      ▼
+                    </span>
+                  </div>
+                  
+                  {/* Expanded Details */}
+                  {isExpanded && (
+                    <div className="border-t border-amber-200 bg-white p-3">
+                      {/* Path Info Grid */}
+                      <div className="grid grid-cols-2 gap-2 mb-3 text-xs">
+                        <div className="bg-gray-50 p-2 rounded">
+                          <span className="text-gray-500">Path ID:</span>
+                          <span className="ml-1 font-medium text-gray-700">#{path.path_id}</span>
+                        </div>
+                        <div className="bg-gray-50 p-2 rounded">
+                          <span className="text-gray-500">Total Stops:</span>
+                          <span className="ml-1 font-medium text-gray-700">{pathStops.length}</span>
+                        </div>
+                      </div>
+                      
+                      {/* Start Point */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="w-6 h-6 bg-green-500 text-white rounded-full flex items-center justify-center text-xs">🚀</span>
+                        <div>
+                          <p className="text-[10px] text-gray-400 uppercase">Starting Point</p>
+                          <p className="text-sm font-medium text-green-700">{startPoint}</p>
+                        </div>
+                      </div>
+                      
+                      {/* Stops Flow */}
+                      {pathStops.length > 2 && (
+                        <div className="ml-3 pl-3 border-l-2 border-dashed border-gray-300 my-2">
+                          <p className="text-[10px] text-gray-400 uppercase mb-1">Stops in Sequence</p>
+                          <div className="space-y-1">
+                            {pathStops.slice(1, -1).map((stop, idx) => (
+                              <div key={idx} className="flex items-center gap-2 text-xs text-gray-600">
+                                <span className="w-5 h-5 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center text-[10px] font-medium">
+                                  {idx + 2}
+                                </span>
+                                {stop.stop_name}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* End Point */}
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs">🏁</span>
+                        <div>
+                          <p className="text-[10px] text-gray-400 uppercase">Ending Point</p>
+                          <p className="text-sm font-medium text-red-700">{endPoint}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* Create New Path Form */}
-      <div className="flex-1 flex flex-col">
-        <h3 className="text-sm font-medium text-gray-700 mb-2">Create New Path</h3>
+      {/* Create New Path Form - Fixed at bottom */}
+      <div className="p-5 bg-gray-50 rounded-b-xl">
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Create New Path</h3>
 
         {/* Error Message */}
         {error && (
-          <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-xs">
+          <div className="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs">
             ❌ {error}
           </div>
         )}
@@ -115,7 +197,7 @@ export default function PathCreator({ stops, paths, onRefresh }) {
           value={pathName}
           onChange={(e) => setPathName(e.target.value)}
           disabled={loading}
-          className="border border-gray-300 w-full p-2 mb-2 text-sm rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
+          className="border border-gray-300 w-full p-2.5 mb-3 text-sm rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
           placeholder="Path name (e.g., Morning Route A)"
         />
 
@@ -123,7 +205,7 @@ export default function PathCreator({ stops, paths, onRefresh }) {
         <select
           onChange={(e) => addStop(e.target.value)}
           disabled={loading || stops.length === 0}
-          className="border border-gray-300 w-full p-2 text-sm mb-2 rounded-lg focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
+          className="border border-gray-300 w-full p-2.5 text-sm mb-3 rounded-lg focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
           value="placeholder"
         >
           <option value="placeholder">
@@ -140,71 +222,60 @@ export default function PathCreator({ stops, paths, onRefresh }) {
           ))}
         </select>
 
-        {/* Selected Stops - Ordered List */}
-        <div className="flex-1 overflow-y-auto mb-2">
-          {selectedStops.length === 0 ? (
-            <div className="text-center py-4 text-gray-400 bg-gray-50 rounded-lg">
-              <p className="text-xs">Select stops to build path sequence</p>
-            </div>
-          ) : (
-            <ul className="space-y-1">
+        {/* Selected Stops Preview */}
+        {selectedStops.length > 0 ? (
+          <div className="mb-3 p-3 bg-white border border-gray-200 rounded-lg max-h-32 overflow-y-auto">
+            <div className="space-y-1.5">
               {selectedStops.map((stopId, index) => (
-                <li
+                <div
                   key={stopId}
-                  className="flex items-center justify-between bg-green-50 border border-green-200 rounded px-2 py-2"
+                  className="flex items-center justify-between text-sm"
                 >
-                  <div className="flex items-center gap-2 flex-1">
-                    <span className="text-xs font-mono text-green-700 w-6">
-                      {index + 1}.
+                  <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-xs font-medium">
+                      {index + 1}
                     </span>
-                    <span className="text-sm text-gray-800 flex-1">
-                      {getStopName(stopId)}
-                    </span>
+                    <span className="text-gray-700">{getStopName(stopId)}</span>
                   </div>
                   <div className="flex gap-1">
                     <button
                       onClick={() => moveUp(index)}
                       disabled={index === 0}
-                      className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                      title="Move up"
-                    >
-                      ↑
-                    </button>
+                      className="w-6 h-6 text-xs bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-30"
+                    >↑</button>
                     <button
                       onClick={() => moveDown(index)}
                       disabled={index === selectedStops.length - 1}
-                      className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                      title="Move down"
-                    >
-                      ↓
-                    </button>
+                      className="w-6 h-6 text-xs bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-30"
+                    >↓</button>
                     <button
                       onClick={() => removeStop(stopId)}
-                      className="px-2 py-1 text-xs bg-red-100 text-red-700 border border-red-300 rounded hover:bg-red-200 transition-colors"
-                      title="Remove"
-                    >
-                      ✕
-                    </button>
+                      className="w-6 h-6 text-xs bg-red-100 text-red-600 hover:bg-red-200 rounded"
+                    >✕</button>
                   </div>
-                </li>
+                </div>
               ))}
-            </ul>
-          )}
-        </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mb-3 p-3 bg-white border border-dashed border-gray-300 rounded-lg text-center">
+            <p className="text-xs text-gray-400">Select stops to build path sequence</p>
+          </div>
+        )}
 
         {/* Create Button */}
         <button
           onClick={handleCreate}
           disabled={loading || !pathName.trim() || selectedStops.length < 2}
-          className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white w-full py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+          className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white w-full py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
         >
           {loading ? (
             <>
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
               Creating...
             </>
           ) : (
-            <>✅ Create Path ({selectedStops.length} stops)</>
+            <>✅ Create Path</>
           )}
         </button>
       </div>

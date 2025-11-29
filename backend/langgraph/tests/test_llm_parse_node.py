@@ -95,9 +95,11 @@ async def test_parse_intent_llm_ocr_bypass():
         # LLM should not have been called
         mock_llm.assert_not_called()
         
-        # Should use OCR context
+        # Should use context bypass
         assert result.get("selectedTripId") == 5
-        assert "OCR" in str(result.get("llm_explanation", "")) or "skipped" in str(result.get("llm_explanation", ""))
+        assert ("context" in str(result.get("llm_explanation", "")).lower() or 
+                "OCR" in str(result.get("llm_explanation", "")) or 
+                "skipped" in str(result.get("llm_explanation", "")))
 
 
 @pytest.mark.asyncio
@@ -146,7 +148,7 @@ async def test_parse_intent_llm_empty_text():
 
 @pytest.mark.asyncio
 async def test_parse_intent_llm_error_handling():
-    """Test graceful error handling when LLM fails"""
+    """Test graceful error handling when LLM fails - should fall back to regex"""
     
     state = {
         "text": "Cancel trip",
@@ -159,10 +161,10 @@ async def test_parse_intent_llm_error_handling():
         
         result = await parse_intent_llm(state)
         
-        # Should return safe fallback
-        assert result["action"] == "unknown"
-        assert result["confidence"] == 0.0
-        assert "error" in result.get("llm_explanation", "").lower()
+        # Should fall back to regex parsing (which recognizes "cancel")
+        assert result["action"] == "cancel_trip"  # Regex fallback should work
+        assert result["confidence"] == 0.3  # Lower confidence for fallback
+        assert "fallback" in result.get("llm_explanation", "").lower()
 
 
 @pytest.mark.asyncio
@@ -233,3 +235,25 @@ async def test_llm_client_confidence_validation():
     }
     validated = _validate_llm_response(response_valid)
     assert validated["confidence"] == 0.75, "Valid confidence should be preserved"
+
+
+@pytest.mark.asyncio
+async def test_parse_intent_llm_complete_failure():
+    """Test complete fallback when both LLM and regex fail"""
+    
+    state = {
+        "text": "some gibberish that wont match regex",
+        "user_id": 1
+    }
+    
+    # Mock LLM to raise exception
+    with patch("langgraph.tools.llm_client.parse_intent_with_llm",
+               new_callable=AsyncMock, side_effect=Exception("LLM API Error")):
+        
+        result = await parse_intent_llm(state)
+        
+        # Should return complete fallback when both LLM and regex fail
+        assert result["action"] == "unknown"
+        assert result["confidence"] == 0.0
+        assert "failed" in result.get("llm_explanation", "").lower()
+        assert result["needs_clarification"] == True

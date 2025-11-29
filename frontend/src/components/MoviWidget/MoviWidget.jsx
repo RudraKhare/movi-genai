@@ -7,13 +7,63 @@ import ImageBubble from './ImageBubble';
 import { sendAgentMessage, confirmAgentAction, uploadAgentImage } from '../../api';
 
 const MoviWidget = ({ context = {}, onRefresh }) => {
+  // IMMEDIATE DEBUGGING: Log what we're receiving
+  console.log('🔍 [MoviWidget] Component rendered with props:', {
+    context: context,
+    contextKeys: Object.keys(context),
+    selectedTripId: context?.selectedTripId,
+    selectedTrip: context?.selectedTrip,
+    currentPage: context?.currentPage,
+    timestamp: new Date().toISOString()
+  });
+
   const [messages, setMessages] = useState([]);
   const [sessionId, setSessionId] = useState(null);
   const [awaitingConfirm, setAwaitingConfirm] = useState(false);
+  const [awaitingForceDelete, setAwaitingForceDelete] = useState(false);  // NEW: For force-delete confirmation
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
+
+  // 🔥 DEBUG: Log sessionId changes
+  useEffect(() => {
+    console.log('🔑 [MoviWidget] sessionId changed:', sessionId);
+  }, [sessionId]);
+  const [persistedContext, setPersistedContext] = useState(null);
   const messagesEndRef = useRef(null);
+
+  // Enhanced context management with persistence
+  useEffect(() => {
+    // Update persisted context when new context received
+    if (context.selectedTripId) {
+      setPersistedContext(context);
+      localStorage.setItem('moviWidget_lastContext', JSON.stringify({
+        selectedTripId: context.selectedTripId,
+        selectedTrip: context.selectedTrip,
+        currentPage: context.currentPage,
+        timestamp: Date.now()
+      }));
+      console.log('[MoviWidget] ✅ Context updated and persisted:', context);
+    }
+  }, [context.selectedTripId, context.selectedTrip]);
+  
+  // Load persisted context on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('moviWidget_lastContext');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        // Only use persisted context if it's recent (within 1 hour) and current context is missing
+        if (parsed.selectedTripId && !context.selectedTripId && 
+            (Date.now() - parsed.timestamp < 3600000)) {
+          console.log('[MoviWidget] 📂 Restored recent context from storage:', parsed);
+          setPersistedContext(parsed);
+        }
+      } catch (e) {
+        console.warn('[MoviWidget] Failed to parse stored context');
+      }
+    }
+  }, [context.selectedTripId]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -25,6 +75,23 @@ const MoviWidget = ({ context = {}, onRefresh }) => {
 
   const handleSendMessage = async (text) => {
     if (!text.trim() || loading || awaitingConfirm) return;
+
+    // IMMEDIATE DEBUG: Log everything to understand the issue
+    console.log("🔥 [MoviWidget] DEBUGGING CONTEXT ISSUE:");
+    console.log("   Raw context prop:", context);
+    console.log("   Persisted context:", persistedContext);
+    console.log("   Context keys:", Object.keys(context || {}));
+    console.log("   selectedTrip from context:", context?.selectedTrip);
+    console.log("   selectedTripId from context:", context?.selectedTripId);
+    console.log("   currentPage from context:", context?.currentPage);
+
+    // Use current context or fallback to persisted context
+    const effectiveContext = {
+      ...context,
+      ...(persistedContext && !context.selectedTripId ? persistedContext : {})
+    };
+
+    console.log("🎯 [MoviWidget] Effective context:", effectiveContext);
 
     // Add user message to chat
     const userMessage = {
@@ -38,17 +105,66 @@ const MoviWidget = ({ context = {}, onRefresh }) => {
     setLoading(true);
 
     try {
+      // CRITICAL DEBUG: First check the effective context construction
+      console.log("🔍 [MoviWidget] DEBUGGING PAYLOAD CONSTRUCTION:");
+      console.log("   effectiveContext.selectedTrip:", effectiveContext.selectedTrip);
+      console.log("   effectiveContext.selectedTrip?.trip_id:", effectiveContext.selectedTrip?.trip_id);
+      console.log("   effectiveContext.selectedTripId:", effectiveContext.selectedTripId);
+      console.log("   Final selectedTripId value:", effectiveContext.selectedTrip?.trip_id || effectiveContext.selectedTripId);
+
       const payload = {
         text: text.trim(),
         user_id: 1,
-        currentPage: context.currentPage || 'busDashboard',
-        selectedRouteId: context.selectedRoute?.route_id || context.selectedRouteId,
-        selectedTripId: context.selectedTrip?.trip_id || context.selectedTripId,
+        session_id: sessionId,
+        selectedTripId: effectiveContext.selectedTrip?.trip_id || effectiveContext.selectedTripId,
+        from_image: false,
+        currentPage: effectiveContext.currentPage || 'busDashboard',
+        selectedRouteId: effectiveContext.selectedRoute?.route_id || effectiveContext.selectedRouteId,
+        conversation_history: []
       };
 
-      console.debug('[MoviWidget] Sending message:', payload);
+      // CRITICAL DEBUG: Log exactly what's being sent to backend
+      console.log("📤 [MoviWidget] PAYLOAD BEING SENT TO BACKEND:");
+      console.log("   text:", payload.text);
+      console.log("   🔑 session_id:", payload.session_id);  // <-- ADDED THIS
+      console.log("   currentPage:", payload.currentPage);
+      console.log("   selectedTripId:", payload.selectedTripId);
+      console.log("   selectedRouteId:", payload.selectedRouteId);
+      console.log("   Full payload:", payload);
+      
+      // Enhanced debugging with effective context
+      console.debug('[MoviWidget] 🎯 Effective context used:', effectiveContext);
+      console.debug('[MoviWidget] Original context received:', context);
+      console.debug('[MoviWidget] Persisted context available:', persistedContext);
+      
+      // Warn about potential context issues
+      const contextKeywords = ['this trip', 'this', 'here', 'it', 'current trip'];
+      const hasContextReference = contextKeywords.some(keyword => text.toLowerCase().includes(keyword));
+      
+      if (hasContextReference && !payload.selectedTripId) {
+        console.warn('[MoviWidget] ⚠️ CONTEXT ISSUE: User referenced context but selectedTripId is missing!');
+        console.warn('[MoviWidget] Text:', text);
+        console.warn('[MoviWidget] Effective context:', effectiveContext);
+      } else if (hasContextReference && payload.selectedTripId) {
+        console.log('[MoviWidget] ✅ Context reference detected and resolved:', payload.selectedTripId);
+      }
+
+      // FINAL DEBUG: Log payload just before sending
+      console.log("🚀 [MoviWidget] FINAL PAYLOAD JUST BEFORE API CALL:", JSON.stringify(payload, null, 2));
+      
       const response = await sendAgentMessage(payload);
-      console.debug('[MoviWidget] Agent reply:', response.data);
+      console.log('[MoviWidget] 📥 Full response.data:', response.data);
+      console.log('[MoviWidget] 📥 response.data.session_id:', response.data.session_id);
+      console.log('[MoviWidget] 📥 response.data.agent_output:', response.data.agent_output);
+
+      // Extract session_id from top-level response (for wizard flows)
+      const responseSessionId = response.data.session_id;
+      if (responseSessionId) {
+        console.log('[MoviWidget] 🔑✅ Setting sessionId from response:', responseSessionId);
+        setSessionId(responseSessionId);
+      } else {
+        console.log('[MoviWidget] ⚠️ No session_id in response!');
+      }
 
       // Extract agent_output from response
       const agentReply = response.data.agent_output || response.data;
@@ -87,12 +203,18 @@ const MoviWidget = ({ context = {}, onRefresh }) => {
 
     // 2. Check for consequence evaluation (awaiting confirmation)
     if (agentReply.awaiting_confirmation || agentReply.needs_confirmation) {
+      const consequences = agentReply.consequences || {};
+      const hasDependencies = consequences.can_force_delete && consequences.dependent_entities?.length > 0;
+      
+      console.log('[MoviWidget] Confirmation needed, consequences:', consequences);
+      console.log('[MoviWidget] Has dependencies:', hasDependencies);
+      
       const consequenceMessage = {
         id: Date.now(),
         type: 'consequence',
         action: agentReply.action,
         trip_id: agentReply.trip_id,
-        consequences: agentReply.consequences,
+        consequences: consequences,
         message: agentReply.message,
         session_id: agentReply.session_id,
         timestamp: new Date().toISOString(),
@@ -100,6 +222,11 @@ const MoviWidget = ({ context = {}, onRefresh }) => {
       setMessages((prev) => [...prev, consequenceMessage]);
       setSessionId(agentReply.session_id);
       setAwaitingConfirm(true);
+      
+      // If there are dependencies, set force delete mode from the start
+      if (hasDependencies) {
+        setAwaitingForceDelete(true);
+      }
       return;
     }
 
@@ -125,7 +252,25 @@ const MoviWidget = ({ context = {}, onRefresh }) => {
       return;
     }
 
-    // 4. Check for fallback
+    // 4. Check for wizard active (stop creation, etc.)
+    if (agentReply.status === 'wizard_active' || agentReply.wizard_active) {
+      console.log('[MoviWidget] 🧙 Wizard active, preserving session_id:', agentReply.session_id);
+      // Store session_id for subsequent messages
+      if (agentReply.session_id) {
+        setSessionId(agentReply.session_id);
+      }
+      
+      const wizardMessage = {
+        id: Date.now(),
+        type: 'agent',
+        text: agentReply.message || 'Please provide the requested information.',
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, wizardMessage]);
+      return;
+    }
+
+    // 5. Check for fallback
     if (agentReply.fallback) {
       const fallbackMessage = {
         id: Date.now(),
@@ -147,7 +292,7 @@ const MoviWidget = ({ context = {}, onRefresh }) => {
     setMessages((prev) => [...prev, normalMessage]);
   };
 
-  const handleConfirm = async (confirm) => {
+  const handleConfirm = async (confirm, forceDelete = false) => {
     if (!sessionId) return;
 
     setLoading(true);
@@ -158,22 +303,27 @@ const MoviWidget = ({ context = {}, onRefresh }) => {
         session_id: sessionId,
         confirmed: confirm,
         user_id: 1,
+        force_delete: forceDelete,
       });
 
       const result = response.data;
+      console.log('[MoviWidget] Confirm response:', JSON.stringify(result, null, 2));
+      
+      const agentOutput = result.agent_output || result;
+      const executionResult = agentOutput.execution_result || {};
 
       if (confirm) {
-        // User confirmed - show success
-        const successMessage = {
+        // Show result message
+        const resultMessage = {
           id: Date.now(),
-          type: 'execution',
-          text: result.message || 'Action executed successfully.',
+          type: executionResult.ok ? 'execution' : 'error',
+          text: agentOutput.message || executionResult.message || 'Action completed.',
           timestamp: new Date().toISOString(),
         };
-        setMessages((prev) => [...prev, successMessage]);
+        setMessages((prev) => [...prev, resultMessage]);
 
-        // Trigger refresh
-        if (onRefresh) {
+        // Trigger refresh on success
+        if (onRefresh && executionResult.ok) {
           setTimeout(() => onRefresh(), 500);
         }
       } else {
@@ -181,7 +331,7 @@ const MoviWidget = ({ context = {}, onRefresh }) => {
         const cancelMessage = {
           id: Date.now(),
           type: 'agent',
-          text: result.message || 'Action cancelled.',
+          text: agentOutput.message || result.message || 'Action cancelled.',
           timestamp: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, cancelMessage]);
@@ -189,6 +339,7 @@ const MoviWidget = ({ context = {}, onRefresh }) => {
 
       setSessionId(null);
       setAwaitingConfirm(false);
+      setAwaitingForceDelete(false);
     } catch (err) {
       console.error('Error confirming action:', err);
       setError('Failed to confirm action. Please try again.');
@@ -536,11 +687,13 @@ const MoviWidget = ({ context = {}, onRefresh }) => {
           </div>
 
           {/* Confirmation Card */}
-          {awaitingConfirm && (
+          {(awaitingConfirm || awaitingForceDelete) && (
             <ConfirmationCard
-              onConfirm={() => handleConfirm(true)}
+              onConfirm={() => handleConfirm(true, awaitingForceDelete)}
               onCancel={() => handleConfirm(false)}
               disabled={loading}
+              confirmText={awaitingForceDelete ? "Force Delete" : "Confirm"}
+              confirmColor={awaitingForceDelete ? "red" : "green"}
             />
           )}
 
@@ -548,11 +701,13 @@ const MoviWidget = ({ context = {}, onRefresh }) => {
           <ChatInput
             onSend={handleSendMessage}
             onImageSelect={handleImageUpload}
-            disabled={loading || awaitingConfirm}
+            disabled={loading || awaitingConfirm || awaitingForceDelete}
             placeholder={
-              awaitingConfirm
-                ? 'Please confirm or cancel the action above'
-                : 'Type a message...'
+              awaitingForceDelete
+                ? 'Please confirm force delete or cancel'
+                : awaitingConfirm
+                  ? 'Please confirm or cancel the action above'
+                  : 'Type a message...'
             }
           />
         </div>

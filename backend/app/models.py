@@ -18,6 +18,20 @@ class AssignVehicleRequest(BaseModel):
     user_id: int = Field(..., description="ID of the user performing the action")
 
 
+class AssignVehicleOnlyRequest(BaseModel):
+    """Request to assign only a vehicle to a trip (no driver)"""
+    trip_id: int = Field(..., description="ID of the trip to assign vehicle to")
+    vehicle_id: int = Field(..., description="ID of the vehicle to assign")
+    user_id: int = Field(..., description="ID of the user performing the action")
+
+
+class AssignDriverOnlyRequest(BaseModel):
+    """Request to assign only a driver to a trip (no vehicle)"""
+    trip_id: int = Field(..., description="ID of the trip to assign driver to")
+    driver_id: int = Field(..., description="ID of the driver to assign")
+    user_id: int = Field(..., description="ID of the user performing the action")
+
+
 class RemoveVehicleRequest(BaseModel):
     trip_id: int = Field(..., description="ID of the trip to remove vehicle from")
     user_id: int = Field(..., description="ID of the user performing the action")

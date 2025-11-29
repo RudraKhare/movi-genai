@@ -44,7 +44,7 @@ export default function ManageRoute() {
             <span className="ml-3 text-gray-600">Loading context...</span>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6" style={{ height: 'calc(100vh - 180px)' }}>
             <StopList stops={data.stops || []} onRefresh={loadData} />
             <PathCreator
               stops={data.stops || []}

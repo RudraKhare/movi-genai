@@ -51,11 +51,11 @@ async def report_result(state: Dict) -> Dict:
         "selection_type": state.get("selection_type"),  # vehicle, driver, etc.
     }
     
-    # IMPORTANT: Preserve formatted output from execute_action (tables, lists, objects, help)
+    # IMPORTANT: Preserve formatted output from execute_action (tables, lists, objects, help, input_required)
     # Don't nest it - merge it directly into final_output
     if existing_formatted_output and isinstance(existing_formatted_output, dict):
-        # If it has a 'type' and 'data', it's formatted output - add it directly
-        if "type" in existing_formatted_output and "data" in existing_formatted_output:
+        # If it has a 'type', it's formatted output - add it directly
+        if "type" in existing_formatted_output:
             final_output["final_output"] = existing_formatted_output
         else:
             # Otherwise merge all keys
@@ -73,8 +73,23 @@ async def report_result(state: Dict) -> Dict:
             or state.get("status") == "awaiting_confirmation"
             or state.get("status") == "suggestions_provided"  # ✅ FIX: Suggestions are also a success
             or state.get("status") == "options_provided"  # ✅ FIX: Vehicle options are also a success
+            or state.get("status") == "awaiting_input"  # ✅ FIX: Awaiting user input is also a success
+            or state.get("status") == "wizard_active"  # ✅ Wizard prompting for input is success
+            or state.get("status") == "wizard_step"  # ✅ Wizard step prompting is success
+            or state.get("status") == "completed"  # ✅ Completed actions are success
         )
     )
+    
+    # Add wizard state to output if wizard is active
+    if state.get("wizard_active") or state.get("status") == "wizard_active" or state.get("status") == "wizard_step":
+        final_output["wizard_active"] = True
+        final_output["wizard_type"] = state.get("wizard_type")
+        final_output["wizard_step"] = state.get("wizard_step", 0)
+        final_output["wizard_steps_total"] = state.get("wizard_steps_total")
+        final_output["wizard_data"] = state.get("wizard_data", {})
+        final_output["wizard_field"] = state.get("wizard_field")
+        final_output["awaiting_wizard_input"] = True
+        final_output["success"] = True  # Wizard prompts are successful states
     
     state["final_output"] = final_output
     

@@ -1,10 +1,15 @@
 """
-Agent Image API Endpoint - PHASE 1: TEXT EXTRACTION ONLY
+Agent Image API Endpoint - COMPLETE OCR + TRIP MATCHING
 
-This endpoint does ONE thing: extract text from image.
-NO trip matching, NO action building, NO intelligence.
+This endpoint:
+1. Extracts text from image using Google Cloud Vision OCR
+2. Matches extracted text against database trips using fuzzy matching
+3. Returns structured response for frontend to display
 
-The extracted text is sent to /api/agent/message where LLM + LangGraph handle everything.
+Returns one of three match types:
+- "single": Confident single match with trip details
+- "multiple": Ambiguous matches requiring user clarification
+- "none": No match found
 """
 
 from fastapi import APIRouter, File, UploadFile, HTTPException, Header
@@ -12,6 +17,7 @@ from typing import Optional
 import logging
 
 from app.core.ocr import extract_text_from_image
+from app.core.trip_matcher import match_candidates
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 logger = logging.getLogger(__name__)
@@ -23,25 +29,19 @@ async def process_image(
     x_api_key: Optional[str] = Header(None)
 ):
     """
-    PHASE 1: OCR - TEXT EXTRACTION ONLY
+    Process uploaded image: OCR extraction + Trip matching.
     
-    This endpoint extracts text from uploaded image using Google Vision API.
-    It does NOT:
-    - Match trips
-    - Build actions
-    - Query database
-    - Make decisions
-    
-    The extracted text is returned to frontend, which then sends it to
-    /api/agent/message where LLM + LangGraph handle all intelligence.
+    Flow:
+    1. Validate image file
+    2. Extract text using Google Cloud Vision OCR
+    3. Match extracted text against database trips (fuzzy matching)
+    4. Return structured response
     
     Returns:
-    {
-        "match_type": "text_extracted",
-        "ocr_text": "... full extracted text ...",
-        "blocks": ["line1", "line2", ...],
-        "confidence": 0.94
-    }
+    - match_type: "single" | "multiple" | "none"
+    - For "single": trip_id, display_name, confidence, auto_forward=True
+    - For "multiple": candidates list with trip options
+    - For "none": error message
     """
     # Validate API key
     if not x_api_key:
@@ -71,11 +71,9 @@ async def process_image(
             error_msg = ocr_result.get("message", "Failed to extract text from image")
             logger.error(f"[OCR] ❌ Extraction failed: {error_msg}")
             return {
-                "match_type": "text_extracted",
-                "ocr_text": "",
-                "blocks": [],
-                "confidence": 0.0,
-                "error": error_msg
+                "match_type": "none",
+                "message": error_msg,
+                "auto_forward": False
             }
         
         raw_text = ocr_result["text"]
@@ -88,22 +86,40 @@ async def process_image(
         if not raw_text or len(raw_text.strip()) < 3:
             logger.warning("[OCR] ⚠️ No readable text found in image")
             return {
-                "match_type": "text_extracted",
-                "ocr_text": raw_text,
-                "blocks": blocks,
-                "confidence": ocr_confidence,
-                "warning": "No readable text found. Try a clearer image."
+                "match_type": "none",
+                "message": "No readable text found in image. Please try a clearer image.",
+                "auto_forward": False
             }
         
-        # Return ONLY the extracted text
-        # Frontend will send this to /api/agent/message with from_image=true
-        # Then LLM + LangGraph will handle all intelligence
-        return {
-            "match_type": "text_extracted",
-            "ocr_text": raw_text,
-            "blocks": blocks,
-            "confidence": ocr_confidence
-        }
+        # STEP 2: Match extracted text against database trips
+        logger.info("[OCR] Starting trip matching...")
+        
+        # Build candidate list: full text + individual blocks for better matching
+        candidates = [raw_text]
+        if blocks:
+            candidates.extend(blocks[:10])  # Add top 10 blocks
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_candidates = []
+        for c in candidates:
+            c_clean = c.strip()
+            if c_clean and c_clean not in seen:
+                seen.add(c_clean)
+                unique_candidates.append(c_clean)
+        
+        logger.info(f"[OCR] Matching {len(unique_candidates)} candidates against trips...")
+        
+        # Perform fuzzy matching against database
+        match_result = await match_candidates(unique_candidates, confidence_threshold=0.65)
+        
+        logger.info(f"[OCR] Match result: {match_result.get('match_type')}")
+        
+        # Add OCR text to result for debugging/display
+        match_result["ocr_text"] = raw_text
+        match_result["ocr_confidence"] = ocr_confidence
+        
+        return match_result
         
     except Exception as e:
         logger.error(f"[OCR] ❌ Error: {str(e)}", exc_info=True)
@@ -120,9 +136,13 @@ async def test_image_endpoint():
     """
     return {
         "status": "ok",
-        "message": "Image OCR endpoint is ready (text extraction only)",
+        "message": "Image OCR + Trip Matching endpoint is ready",
         "supported_formats": ["jpg", "jpeg", "png"],
         "max_file_size": "10MB",
-        "note": "OCR only extracts text. Intelligence handled by LLM + LangGraph."
+        "features": [
+            "Google Cloud Vision OCR",
+            "Fuzzy trip matching with rapidfuzz",
+            "Returns single/multiple/none match types"
+        ]
     }
 
