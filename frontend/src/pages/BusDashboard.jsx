@@ -91,21 +91,6 @@ export default function BusDashboard() {
 
       {/* Main content area */}
       <div className="flex h-[calc(100vh-140px)]">
-        {/* Test Button for Debugging Trip Selection */}
-        <div className="absolute top-20 left-4 z-50">
-          <button 
-            onClick={() => {
-              const testTrip = trips[0]; // First trip from the list
-              console.log("🧪 [TEST] Simulating trip selection with:", testTrip);
-              handleTripSelect(testTrip);
-            }}
-            className="bg-red-500 text-white px-3 py-1 rounded text-sm"
-            disabled={trips.length === 0}
-          >
-            🧪 Test Select Trip {trips.length > 0 ? trips[0]?.trip_id : ''}
-          </button>
-        </div>
-
         {/* Left sidebar - Trip List */}
         <div className="w-96 bg-white border-r border-gray-200 overflow-y-auto">
           {loading && trips.length === 0 ? (
