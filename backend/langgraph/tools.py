@@ -295,7 +295,8 @@ async def tool_update_trip_status(trip_id: int, new_status: str, user_id: int) -
         
         result = await manually_update_trip_status(trip_id, status_upper, user_id)
         
-        if result.get("ok"):
+        # manually_update_trip_status returns "success" key, not "ok"
+        if result.get("success") or result.get("ok"):
             return {
                 "ok": True,
                 "message": f"Trip {trip_id} status updated to {status_upper}",

@@ -284,6 +284,7 @@ async def agent_confirm(request: AgentConfirmRequest):
             tool_update_trip_status,
             tool_update_trip_time,
             tool_delay_trip,
+            tool_reschedule_trip,
         )
         import json
         
@@ -397,6 +398,16 @@ async def agent_confirm(request: AgentConfirmRequest):
                     result = {
                         "ok": False,
                         "message": "Missing delay_minutes for delay"
+                    }
+            elif action == "reschedule_trip":
+                new_time = pending_action.get("new_time")
+                new_date = pending_action.get("new_date")
+                if new_time or new_date:
+                    result = await tool_reschedule_trip(trip_id, new_time, new_date)
+                else:
+                    result = {
+                        "ok": False,
+                        "message": "Missing new_time or new_date for reschedule"
                     }
             elif action == "cancel_all_bookings":
                 from langgraph.tools import tool_cancel_all_bookings
